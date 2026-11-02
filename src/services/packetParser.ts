@@ -74,6 +74,18 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
           Number(stPkt.v?.[2] ?? 0),
           Number(stPkt.v?.[3] ?? 0),
         ],
+        // Thay nuoc + do sach loi (firmware cu khong gui -> coi nhu khong lap van xa / chua biet)
+        d: [
+          Number(stPkt.d?.[0] ?? 0),
+          Number(stPkt.d?.[1] ?? 0),
+          Number(stPkt.d?.[2] ?? 0),
+          Number(stPkt.d?.[3] ?? 0),
+        ],
+        dleft: Number(stPkt.dleft ?? 0),
+        dnext_t: Number(stPkt.dnext_t ?? 0),
+        fcl: Number(stPkt.fcl ?? -1),
+        fcl_ma: Number(stPkt.fcl_ma ?? 0),
+        rdur: Number(stPkt.rdur ?? 0),
         err: Number(stPkt.err ?? 0),
         wrn: Number(stPkt.wrn ?? 0),
         wifi: {
@@ -125,6 +137,15 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         k_v: Number(cfPkt.k_v ?? 82.7),
         bz_key: (cfPkt.bz_key ?? 1) as 0 | 1,
         bz_alarm: (cfPkt.bz_alarm ?? 1) as 0 | 1,
+        drain: (cfPkt.drain ?? 0) as 0 | 1,
+        d_days: Number(cfPkt.d_days ?? 3),
+        d_hour: Number(cfPkt.d_hour ?? 12),
+        d_min: Number(cfPkt.d_min ?? 0),
+        d_sec: Number(cfPkt.d_sec ?? 60),
+        d_vmin: Number(cfPkt.d_vmin ?? 50),
+        d_vmax: Number(cfPkt.d_vmax ?? 1000),
+        z_d: Number(cfPkt.z_d ?? 1.667),
+        k_d: Number(cfPkt.k_d ?? 82.7),
       };
 
       return {
