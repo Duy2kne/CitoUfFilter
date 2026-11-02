@@ -24,8 +24,8 @@ export interface UfStatus {
   kwh: number; // 30-day cumulative energy (kWh, 3 decimals)
   pw: 0 | 1; // 1 = power on, 0 = power off
   fm: number; // Filter mode (0-5)
-  st: number; // State: 0 OFF, 1 STANDBY, 2 FILTERING, 3 MANUAL, 4 MEASURING, 5 FAULT
-  ph: string; // Machine display text: OFF, STANDBY, FILTERING, MANUAL, MEASURING, FAULT, OTA
+  st: number; // State: 0 OFF, 1 STANDBY, 2 FILTERING, 3 MANUAL, 4 MEASURING, 5 FAULT, 6 DRAINING (water change)
+  ph: string; // Machine display text: OFF, STANDBY, FILTERING, MANUAL, MEASURING, DRAINING, FAULT, OTA
   run: {
     tot: number; // Total seconds for current cycle
     left: number; // Remaining seconds for current cycle
@@ -35,6 +35,12 @@ export interface UfStatus {
   man: 0 | 1; // 1 = manual filter active
   p: [number, number, number]; // Pump: [on (0/1), has_current_sensor (0/1), current_mA]
   v: [number, number, number, number]; // Valve: [installed/enabled (0/1), on (0/1), has_current_sensor (0/1), current_mA]
+  d: [number, number, number, number]; // Drain valve (water change): [installed, open, has_current_sensor, current_mA]
+  dleft: number; // Draining: seconds left (0 = not draining)
+  dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock)
+  fcl: number; // Filter cleanliness 0-100 % from pump current (-1 = unknown)
+  fcl_ma: number; // Learned pump current with a clean filter (mA, 0 = not learned yet)
+  rdur: number; // Pump running: seconds of this run; idle: length of the last run
   err: number; // Error bitmask (bit b = E(b+1))
   wrn: number; // Warning bitmask (subset of err, machine continues filtering)
   wifi: {
@@ -79,6 +85,16 @@ export interface UfConfig {
   k_v: number; // Valve ACS712 sensitivity (counts/A)
   bz_key: 0 | 1; // Key click buzzer
   bz_alarm: 0 | 1; // Fault alarm buzzer
+  // Water change (drain) - optional, firmware 1.0.0 settings v2. Absent on older firmware -> treated as not installed
+  drain: 0 | 1; // 1 = drain valve installed (GPIO26)
+  d_days: number; // Change water every N days (1-30; epoch day % N == 0)
+  d_hour: number; // Hour (0-23)
+  d_min: number; // Minute (0-59)
+  d_sec: number; // Drain duration in seconds (5-1800)
+  d_vmin: number; // Drain valve under-current threshold (mA) -> E11
+  d_vmax: number; // Drain valve over-current threshold (mA) -> E12 (locked)
+  z_d: number; // Drain ACS712 zero voltage (V)
+  k_d: number; // Drain ACS712 sensitivity (counts/A)
 }
 
 // Ack packet: {"t":"ack", "a":"<CMD>", "ok": boolean, "msg"?: string}
@@ -214,6 +230,22 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     isWarning: true,
     hint: 'Cảnh báo: Nước hồ có TDS vượt mức an toàn. Nên kiểm tra chất lượng nước, châm nước sạch hoặc thay lõi lọc.',
   },
+  11: {
+    code: 'E11',
+    bit: 10,
+    name: 'Van xả không mở',
+    isLocking: false,
+    isWarning: false,
+    hint: 'Đã hủy lần thay nước này (lịch lần sau vẫn chạy). Kiểm tra dây van xả. Nếu không lắp van xả, hãy tắt mục "Có lắp van xả" trong tab Kỹ thuật.',
+  },
+  12: {
+    code: 'E12',
+    bit: 11,
+    name: 'Van xả quá dòng / chập',
+    isLocking: true,
+    isWarning: false,
+    hint: 'Máy đã khóa an toàn! Cuộn van xả chập hoặc kẹt. Kiểm tra van xả trước khi bấm "Xóa lỗi".',
+  },
 };
 
 // Filter mode names and descriptions
@@ -230,7 +262,7 @@ export const DAY_OPTIONS: { id: number; name: string; desc: string }[] = [
   { id: 0, name: 'Mỗi ngày', desc: 'Lọc đều đặn tất cả các ngày trong tuần' },
   { id: 1, name: 'Ngày chẵn', desc: 'Lọc vào ngày 2, 4, 6, 8, 10... trong tháng' },
   { id: 2, name: 'Ngày lẻ', desc: 'Lọc vào ngày 1, 3, 5, 7, 9... trong tháng' },
-  { id: 3, name: 'Ba ngày 1 lần', desc: 'Lọc ngày 1, 4, 7, 10, 13... trong tháng' },
+  { id: 3, name: 'Ba ngày 1 lần', desc: 'Theo ngày trong năm: 1/1, 4/1, 7/1… (đếm liên tục, không reset theo tháng)' },
   { id: 4, name: 'Theo thứ', desc: 'Chọn các thứ cụ thể trong tuần (T2 - CN)' },
 ];
 
@@ -251,7 +283,13 @@ export const MACHINE_STATES: Record<number, { name: string; color: string; badge
   3: { name: 'Đang lọc tay', color: 'text-blue-400', badge: 'bg-blue-950/60 text-blue-300 border-blue-800/50' },
   4: { name: 'Đang đo TDS', color: 'text-purple-400', badge: 'bg-purple-950/60 text-purple-300 border-purple-800/50' },
   5: { name: 'LỖI – Đã khóa an toàn', color: 'text-rose-400', badge: 'bg-rose-950/60 text-rose-300 border-rose-800/50' },
+  6: { name: 'Đang thay nước (xả)', color: 'text-orange-400', badge: 'bg-orange-950/60 text-orange-300 border-orange-800/50' },
 };
+
+/** Locked faults (E2, E6, E12): power on again or CLEAR_FAULTS */
+export const LOCKED_ERRORS_MASK = 0x822;
+/** Number of error codes known by the firmware (E1..E12) */
+export const ERROR_COUNT = 12;
 
 /**
  * Format current: mA under 1000, A with 2 decimals >= 1000
@@ -297,10 +335,16 @@ export function formatTdsAge(ageSeconds: number | null): string {
 }
 
 /**
- * Check if error bitmask has any locked fault (E2 or E6, bitmask 0x22)
+ * Check if error bitmask has any locked fault (E2, E6 or E12, bitmask 0x822)
  */
 export function isLockedFault(errMask: number): boolean {
-  return (errMask & 0x22) !== 0;
+  return (errMask & LOCKED_ERRORS_MASK) !== 0;
+}
+
+/** "HH:MM" of a local epoch (read with getUTC*) */
+export function formatLocalHm(localEpoch: number): string {
+  const d = new Date(localEpoch * 1000);
+  return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
 }
 
 /**
@@ -308,7 +352,7 @@ export function isLockedFault(errMask: number): boolean {
  */
 export function parseErrors(errMask: number, wrnMask: number): ErrorDetail[] {
   const list: ErrorDetail[] = [];
-  for (let b = 0; b < 10; b++) {
+  for (let b = 0; b < ERROR_COUNT; b++) {
     if ((errMask & (1 << b)) !== 0) {
       const codeNum = b + 1;
       const def = ERROR_DEFINITIONS[codeNum];
@@ -345,6 +389,12 @@ export const INITIAL_STATUS: UfStatus = {
   man: 0,
   p: [0, 1, 0],
   v: [0, 0, 0, 0],
+  d: [0, 0, 0, 0],
+  dleft: 0,
+  dnext_t: 0,
+  fcl: 92,
+  fcl_ma: 260,
+  rdur: 0,
   err: 0,
   wrn: 0,
   wifi: { sta: 2, ip: '192.168.1.155', rssi: -62 },
@@ -384,4 +434,13 @@ export const INITIAL_CONFIG: UfConfig = {
   k_v: 82.7,
   bz_key: 1,
   bz_alarm: 1,
+  drain: 1,
+  d_days: 3,
+  d_hour: 12,
+  d_min: 0,
+  d_sec: 60,
+  d_vmin: 50,
+  d_vmax: 1000,
+  z_d: 1.667,
+  k_d: 82.7,
 };
