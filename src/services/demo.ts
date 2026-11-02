@@ -8,6 +8,7 @@ import {
   HistoryEventTuple,
   INITIAL_CONFIG,
   INITIAL_STATUS,
+  LOCKED_ERRORS_MASK,
   UfConfig,
   UfIncomingPacket,
   UfStatus,
@@ -34,6 +35,11 @@ export class UfDemoDevice {
   private isMeasuring: boolean = false;
   private measureRemainingSeconds: number = 0;
   private uptimeSeconds: number = 3600;
+  private isDraining: boolean = false;
+  private drainRemainingSeconds: number = 0;
+  private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
+  private runElapsedSeconds: number = 0;
+  private cleanLearnSeconds: number = 0;      // Sau FILTER_RESET: bom chay du lau thi hoc lai loi sach
 
   constructor() {
     this.status = JSON.parse(JSON.stringify(INITIAL_STATUS));
@@ -80,7 +86,12 @@ export class UfDemoDevice {
     this.status.up = this.uptimeSeconds;
 
     const now = new Date();
-    const hasLockFault = (this.status.err & 0x22) !== 0;
+    const hasLockFault = (this.status.err & LOCKED_ERRORS_MASK) !== 0;
+    const localNow = Math.floor(now.getTime() / 1000 - now.getTimezoneOffset() * 60);
+    this.status.d = [this.config.drain, 0, 1, 0];
+    this.status.dleft = 0;
+    this.updateDrainNext(localNow);
+    this.updatePumpRun();
 
     // Check if machine is turned on
     if (this.status.pw === 0 || hasLockFault) {
@@ -91,8 +102,40 @@ export class UfDemoDevice {
       this.status.wt = 0;
       this.status.run = { tot: 0, left: 0 };
       this.status.next = -1;
+      this.isDraining = false;
       this.emit({ t: 'st', ...this.status });
       return;
+    }
+
+    // Thay nuoc theo lich (giong firmware: ngay tu 1970 chia het d_days, trong 2 phut sau gio hen)
+    if (this.config.drain === 1 && !this.isDraining && this.status.tk === 1) {
+      const day = Math.floor(localNow / 86400);
+      const at = day * 86400 + this.config.d_hour * 3600 + this.config.d_min * 60;
+      if (day % Math.max(1, this.config.d_days) === 0 && day !== this.drainDoneDay && localNow >= at && localNow < at + 120) {
+        this.drainDoneDay = day;
+        this.startDrain(0);
+      }
+    }
+
+    // Dang thay nuoc: uu tien hon loc
+    if (this.isDraining) {
+      this.drainRemainingSeconds--;
+      this.status.st = 6;
+      this.status.ph = 'DRAINING';
+      this.status.p = [1, 1, 330];
+      this.status.v = [this.config.valve, 0, 1, 0];
+      this.status.d = [this.config.drain, 1, 1, 180];
+      this.status.wt = 16.1;
+      this.status.dleft = Math.max(0, this.drainRemainingSeconds);
+      this.status.run = { tot: this.config.d_sec, left: this.status.dleft };
+      if (this.drainRemainingSeconds <= 0) {
+        this.isDraining = false;
+        this.addHistoryEvent(4, 3, this.config.d_sec);   // Luot bom (thay nuoc) xong
+        this.addHistoryEvent(15, 5, 0);                  // Xa du thoi gian
+      } else {
+        this.emit({ t: 'st', ...this.status });
+        return;
+      }
     }
 
     // Handle Measuring TDS cycle (25s)
@@ -182,6 +225,45 @@ export class UfDemoDevice {
     this.calculateNextRun(now);
 
     this.emit({ t: 'st', ...this.status });
+  }
+
+  private startDrain(src: number) {
+    this.isDraining = true;
+    this.drainRemainingSeconds = this.config.d_sec;
+    this.isMeasuring = false;
+    this.addHistoryEvent(15, src, 1);
+  }
+
+  // Gio lan thay nuoc ke (gio dia phuong, giay tu 1970), 0 = khong lap van xa / chua co gio
+  private updateDrainNext(localNow: number) {
+    if (this.config.drain !== 1 || this.status.tk !== 1) {
+      this.status.dnext_t = 0;
+      return;
+    }
+    const tod = this.config.d_hour * 3600 + this.config.d_min * 60;
+    const n = Math.max(1, this.config.d_days);
+    for (let d = Math.floor(localNow / 86400), k = 0; k <= 31; k++, d++) {
+      const at = d * 86400 + tod;
+      if (at > localNow && d % n === 0 && d !== this.drainDoneDay) {
+        this.status.dnext_t = at;
+        return;
+      }
+    }
+    this.status.dnext_t = 0;
+  }
+
+  // Thoi gian da chay cua luot bom + hoc lai loi sach sau FILTER_RESET (goi moi giay, dung trang thai giay truoc)
+  private updatePumpRun() {
+    if (this.status.p[0] === 1) {
+      this.runElapsedSeconds++;
+      this.status.rdur = this.runElapsedSeconds;
+      if (this.status.fcl < 0 && this.status.st !== 6 && ++this.cleanLearnSeconds >= 12) {
+        this.status.fcl = 100;
+        this.status.fcl_ma = this.status.p[2];
+      }
+    } else {
+      this.runElapsedSeconds = 0;
+    }
   }
 
   private calculateNextRun(now: Date) {
@@ -284,7 +366,7 @@ export class UfDemoDevice {
         this.status.pw = on ? 1 : 0;
         if (on) {
           // Power on clears locking faults
-          this.status.err &= ~0x22;
+          this.status.err &= ~LOCKED_ERRORS_MASK;
           this.status.st = 1;
           this.status.ph = 'STANDBY';
         } else {
@@ -292,6 +374,7 @@ export class UfDemoDevice {
           this.status.ph = 'OFF';
           this.status.man = 0;
           this.isMeasuring = false;
+          this.isDraining = false;
         }
         this.addHistoryEvent(2, 3, on ? 1 : 0);
         this.emit({ t: 'ack', a: 'POWER', ok: true, msg: on ? 'Đã bật máy' : 'Đã tắt máy' });
@@ -305,7 +388,7 @@ export class UfDemoDevice {
           this.emit({ t: 'ack', a: 'FILTER', ok: false, msg: 'Máy đang tắt' });
           return;
         }
-        if ((this.status.err & 0x22) !== 0) {
+        if ((this.status.err & LOCKED_ERRORS_MASK) !== 0) {
           this.emit({ t: 'ack', a: 'FILTER', ok: false, msg: 'Máy đang có lỗi khóa an toàn' });
           return;
         }
@@ -334,7 +417,7 @@ export class UfDemoDevice {
           this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang lọc, TDS đang tự cập nhật' });
           return;
         }
-        if ((this.status.err & 0x22) !== 0) {
+        if ((this.status.err & LOCKED_ERRORS_MASK) !== 0) {
           this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang có lỗi khóa an toàn' });
           return;
         }
@@ -346,9 +429,42 @@ export class UfDemoDevice {
         break;
       }
 
+      case 'DRAIN': {
+        const on = Boolean(params.on);
+        if (!on) {
+          if (this.isDraining) {
+            this.isDraining = false;
+            this.addHistoryEvent(15, 3, 0);
+          }
+          this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đã dừng thay nước' });
+          this.emit({ t: 'st', ...this.status });
+          break;
+        }
+        if (this.config.drain !== 1) {
+          this.emit({ t: 'ack', a: 'DRAIN', ok: false, msg: 'Chưa bật van xả (thay nước) trong cài đặt' });
+          return;
+        }
+        if (this.status.pw === 0 || (this.status.err & LOCKED_ERRORS_MASK) !== 0) {
+          this.emit({ t: 'ack', a: 'DRAIN', ok: false, msg: 'Máy đang tắt / có lỗi khóa' });
+          return;
+        }
+        this.startDrain(3);
+        this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đang thay nước' });
+        this.emit({ t: 'st', ...this.status });
+        break;
+      }
+
+      case 'FILTER_RESET':
+        this.status.fcl = -1;
+        this.status.fcl_ma = 0;
+        this.cleanLearnSeconds = 0;
+        this.emit({ t: 'ack', a: 'FILTER_RESET', ok: true, msg: 'Đã ghi nhận lõi mới - máy học lại ở lượt lọc sau' });
+        this.emit({ t: 'st', ...this.status });
+        break;
+
       case 'CLEAR_FAULTS':
-        // Clears E1, E2, E5, E6 (mask 0x33)
-        this.status.err &= ~0x33;
+        // Clears E1, E2, E5, E6, E11, E12 (mask 0xC33)
+        this.status.err &= ~0xc33;
         this.addHistoryEvent(6, 3, 0);
         this.emit({ t: 'ack', a: 'CLEAR_FAULTS', ok: true, msg: 'Đã xóa lỗi' });
         this.emit({ t: 'st', ...this.status });
@@ -376,12 +492,13 @@ export class UfDemoDevice {
       }
 
       case 'ACS_ZERO':
-        if (this.status.p[0] === 1 || this.status.v[1] === 1) {
+        if (this.status.p[0] === 1 || this.status.v[1] === 1 || this.status.d[1] === 1) {
           this.emit({ t: 'ack', a: 'ACS_ZERO', ok: false, msg: 'Chờ hết lượt lọc, bơm và van phải tắt' });
           return;
         }
         this.config.z_p = 1.65;
         this.config.z_v = 1.65;
+        if (this.config.drain === 1) this.config.z_d = 1.65;
         this.addHistoryEvent(10, 3, 0);
         this.emit({ t: 'ack', a: 'ACS_ZERO', ok: true, msg: 'Đã hiệu chuẩn điểm 0 A thành công' });
         this.emit({ t: 'cf', ...this.config });
@@ -397,9 +514,12 @@ export class UfDemoDevice {
         if (ch === 0) {
           this.config.k_p = Math.min(207, Math.max(33, Number((82.7 * (ma / 350)).toFixed(1))));
           this.addHistoryEvent(10, 3, 11);
-        } else {
+        } else if (ch === 1) {
           this.config.k_v = Math.min(207, Math.max(33, Number((82.7 * (ma / 350)).toFixed(1))));
           this.addHistoryEvent(10, 3, 12);
+        } else {
+          this.config.k_d = Math.min(207, Math.max(33, Number((82.7 * (ma / 180)).toFixed(1))));
+          this.addHistoryEvent(10, 3, 13);
         }
         this.emit({ t: 'ack', a: 'ACS_CAL', ok: true, msg: 'Đã hiệu chuẩn hệ số theo ampe kìm' });
         this.emit({ t: 'cf', ...this.config });
@@ -429,6 +549,8 @@ export class UfDemoDevice {
           z_v: this.config.z_v,
           k_p: this.config.k_p,
           k_v: this.config.k_v,
+          z_d: this.config.z_d,
+          k_d: this.config.k_d,
           tds_k: this.config.tds_k,
         };
         this.addHistoryEvent(9, 3, 0);
@@ -541,8 +663,8 @@ export class UfDemoDevice {
       this.status.wrn |= 1 << bit;
     }
 
-    // If locked fault (E2, E6), change machine state to FAULT
-    if (errorCode === 2 || errorCode === 6) {
+    // If locked fault (E2, E6, E12), change machine state to FAULT
+    if (errorCode === 2 || errorCode === 6 || errorCode === 12) {
       this.status.st = 5;
       this.status.ph = 'FAULT';
       this.status.p = [0, 1, 0];
