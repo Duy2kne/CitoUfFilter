@@ -75,7 +75,7 @@ export function getHourWindowInfo(
  * 0: Every day
  * 1: Even day of month (2, 4, 6...)
  * 2: Odd day of month (1, 3, 5...)
- * 3: Every 3 days (dayOfMonth % 3 === 1 => 1, 4, 7, 10...)
+ * 3: Every 3 days by day of the YEAR (dayOfYear0 % 3 === 0 => Jan 1, Jan 4, ... like firmware tm_yday % 3)
  * 4: By weekday bitmask (bit0=Sun, bit1=Mon, ..., bit6=Sat)
  */
 export function isDayActive(date: Date, dayRule: number, wdayMask: number): boolean {
@@ -89,8 +89,13 @@ export function isDayActive(date: Date, dayRule: number, wdayMask: number): bool
       return dayOfMonth % 2 === 0;
     case 2: // Odd days
       return dayOfMonth % 2 !== 0;
-    case 3: // Every 3 days (1, 4, 7, 10...)
-      return dayOfMonth % 3 === 1;
+    case 3: {
+      // Every 3 days by day of year (0-based), same as firmware tm_yday % 3 == 0
+      const dayOfYear0 = Math.floor(
+        (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 1)) / 86400000
+      );
+      return dayOfYear0 % 3 === 0;
+    }
     case 4: // By weekday
       // If mask is 0, firmware treats as all week (127)
       const mask = wdayMask === 0 ? 127 : wdayMask;
