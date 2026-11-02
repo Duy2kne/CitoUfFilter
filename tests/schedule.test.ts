@@ -122,4 +122,13 @@ describe('Schedule Calculator & Midnight Window Logic', () => {
     expect(slots[16].isActive).toBe(true);
     expect(slots[17].isActive).toBe(false);
   });
+
+  it('Every 3 days follows day of YEAR like firmware (tm_yday % 3 == 0), not day of month', () => {
+    expect(isDayActive(new Date(2026, 0, 1), 3, 127)).toBe(true); // yday 0
+    expect(isDayActive(new Date(2026, 0, 2), 3, 127)).toBe(false); // yday 1
+    expect(isDayActive(new Date(2026, 0, 4), 3, 127)).toBe(true); // yday 3
+    expect(isDayActive(new Date(2026, 1, 1), 3, 127)).toBe(false); // 1/2: yday 31
+    expect(isDayActive(new Date(2026, 1, 2), 3, 127)).toBe(false); // yday 32
+    expect(isDayActive(new Date(2026, 0, 31), 3, 127)).toBe(true); // yday 30
+  });
 });
