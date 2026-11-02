@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ERROR_DEFINITIONS, FILTER_MODES, HistoryEventTuple } from '../types/system';
+import { ERROR_COUNT, ERROR_DEFINITIONS, FILTER_MODES, HistoryEventTuple } from '../types/system';
 
 export interface FormattedHistoryEvent {
   raw: HistoryEventTuple;
@@ -172,6 +172,7 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       let cycleType = 'Lọc theo lịch';
       if (src === 1) cycleType = 'Lọc tay';
       else if (src === 2) cycleType = 'Đo TDS';
+      else if (src === 3) cycleType = 'Thay nước (xả)';
 
       title = `${cycleType}: Hoàn thành ${durationStr}`;
       detail = `Bơm chạy an toàn trong ${val} giây`;
@@ -184,7 +185,7 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       category = 'error';
       icon = 'alert-triangle';
       const errNames: string[] = [];
-      for (let b = 0; b < 10; b++) {
+      for (let b = 0; b < ERROR_COUNT; b++) {
         if ((val & (1 << b)) !== 0) {
           const def = ERROR_DEFINITIONS[b + 1];
           if (def) errNames.push(`${def.code}: ${def.name}`);
@@ -253,9 +254,12 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       } else if (val === 11) {
         title = 'Chỉnh hệ số dòng Bơm (Ampe kìm)';
         detail = 'Đã hiệu chuẩn k_p theo số đo thực tế';
-      } else {
-        title = 'Chỉnh hệ số dòng Van (Ampe kìm)';
+      } else if (val === 12) {
+        title = 'Chỉnh hệ số dòng Van lọc (Ampe kìm)';
         detail = 'Đã hiệu chuẩn k_v theo số đo thực tế';
+      } else {
+        title = 'Chỉnh hệ số dòng Van xả (Ampe kìm)';
+        detail = 'Đã hiệu chuẩn k_d theo số đo thực tế';
       }
       badgeColor = 'text-teal-300 bg-teal-950/60 border-teal-800/40';
       break;
@@ -301,6 +305,25 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       break;
     }
 
+    case 15: {
+      // Water change (drain) started / stopped
+      category = 'run';
+      icon = 'droplet';
+      title = val === 1 ? 'Bắt đầu thay nước (xả)' : 'Dừng thay nước';
+      detail =
+        val === 1
+          ? src === 0
+            ? 'Đến giờ thay nước theo lịch'
+            : 'Thay nước ngay theo lệnh'
+          : src === 5
+          ? 'Xả đủ thời gian cài đặt'
+          : src === 4
+          ? 'Dừng do lỗi bảo vệ'
+          : 'Người dùng dừng / máy tắt';
+      badgeColor = 'text-orange-300 bg-orange-950/60 border-orange-800/40';
+      break;
+    }
+
     default:
       title = `Sự kiện loại ${type}`;
       detail = `Giá trị: ${val}`;
@@ -334,8 +357,8 @@ export function calculateFilterMetrics(history: HistoryEventTuple[]): {
   const todayKey = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
   const sevenDaysAgoMs = now.getTime() - 7 * 24 * 3600 * 1000;
 
-  for (const [t, type, , val] of history) {
-    if (type === 4) {
+  for (const [t, type, src, val] of history) {
+    if (type === 4 && src !== 3) {                       // Khong tinh luot thay nuoc (src 3) vao thoi gian loc
       // Filter cycle completed, val is duration in seconds
       const durationMins = Math.round(val / 60);
 
