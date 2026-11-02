@@ -3,7 +3,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+
+// O nhap so: chi gui khi roi o / bam Enter (khong gui tung phim -> may khong nhan gia tri do dang)
+const NumField: React.FC<{
+  value: number;
+  step?: number;
+  className?: string;
+  onCommit: (v: number) => void;
+}> = ({ value, step = 1, className, onCommit }) => {
+  const [text, setText] = useState<string>(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const v = Number(text);
+    if (text.trim() === '' || !Number.isFinite(v)) { setText(String(value)); return; }
+    if (v !== value) onCommit(v);
+  };
+  return (
+    <input
+      type="number"
+      step={step}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      className={className}
+    />
+  );
+};
 import {
   Activity,
   AlertOctagon,
@@ -231,6 +258,18 @@ export const TechTab: React.FC<TechTabProps> = ({
               + E5 (Van không mở)
             </button>
             <button
+              onClick={() => onInjectDemoFault(11)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-blue-950 border border-blue-700/60 text-blue-300 hover:bg-blue-900"
+            >
+              + E11 (Van xả không mở)
+            </button>
+            <button
+              onClick={() => onInjectDemoFault(12)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-rose-950 border border-rose-700/60 text-rose-300 hover:bg-rose-900"
+            >
+              + E12 (Van xả quá dòng - Khóa)
+            </button>
+            <button
               onClick={() => onInjectDemoFault(10)}
               className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-amber-950 border border-amber-700/60 text-amber-300 hover:bg-amber-900"
             >
@@ -274,6 +313,22 @@ export const TechTab: React.FC<TechTabProps> = ({
               />
             </div>
 
+            {/* Có van xả (thay nước) */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div className="font-semibold text-slate-200">Có lắp van xả – thay nước (drain)</div>
+                <div className="text-slate-400 mt-0.5 text-[11px]">
+                  Van xả nối ngõ ra GPIO26, đo dòng GPIO36. Tắt: máy không xả và không báo lỗi van xả. Lịch xả ở tab Lịch lọc.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={config?.drain === 1}
+                onChange={(e) => handleUpdateConfig('drain', e.target.checked ? 1 : 0)}
+                className="w-5 h-5 accent-orange-500 rounded cursor-pointer"
+              />
+            </div>
+
             {/* Tự đo TDS khi nghỉ lâu */}
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
@@ -297,17 +352,16 @@ export const TechTab: React.FC<TechTabProps> = ({
                   <div className="font-semibold text-slate-200">Ngưỡng cảnh báo TDS cao (tds_alarm)</div>
                   <div className="text-slate-400 text-[11px]">Khi TDS vượt mức này máy sẽ báo E10 (0 = tắt cảnh báo)</div>
                 </div>
-                <span className="font-mono text-cyan-400 font-bold">{config?.tds_alarm || 0} ppm</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <NumField
+                    value={config?.tds_alarm ?? 0}
+                    step={25}
+                    onCommit={(v) => handleUpdateConfig('tds_alarm', Math.round(v))}
+                    className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-cyan-300"
+                  />
+                  <span className="text-slate-400">ppm</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={1500}
-                step={25}
-                value={config?.tds_alarm || 0}
-                onChange={(e) => handleUpdateConfig('tds_alarm', Number(e.target.value))}
-                className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-900 rounded"
-              />
             </div>
 
             {/* Còi & Bíp */}
@@ -344,7 +398,7 @@ export const TechTab: React.FC<TechTabProps> = ({
           <div className="flex items-center gap-3">
             <Zap className="w-5 h-5 text-amber-400" />
             <div>
-              <div className="text-sm font-bold text-slate-100">2. Bảo vệ dòng điện Bơm & Van</div>
+              <div className="text-sm font-bold text-slate-100">2. Bảo vệ dòng điện Bơm, Van lọc & Van xả</div>
               <div className="text-xs text-slate-400">Ngắt quá dòng, cảnh báo lõi bẩn, kẹt rotor</div>
             </div>
           </div>
@@ -364,6 +418,9 @@ export const TechTab: React.FC<TechTabProps> = ({
                 {config?.valve === 1 && (
                   <span className="text-blue-400">Van: {status ? formatCurrent(status.v[3]) : '—'}</span>
                 )}
+                {config?.drain === 1 && (
+                  <span className="text-orange-400">Xả: {status ? formatCurrent(status.d[3]) : '—'}</span>
+                )}
               </div>
             </div>
 
@@ -376,7 +433,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               <span>Lấy dòng hiện tại làm chuẩn (gợi ý tự động)</span>
             </button>
 
-            {/* Threshold inputs */}
+            {/* Threshold inputs: go xong (roi o / Enter) moi gui, khong gui tung phim */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -384,50 +441,113 @@ export const TechTab: React.FC<TechTabProps> = ({
                   <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như bơm không chạy (E1)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
+                  <NumField
+                    value={config?.p_min ?? 150}
                     step={10}
-                    value={config?.p_min || 150}
-                    onChange={(e) => handleUpdateConfig('p_min', Number(e.target.value))}
+                    onCommit={(v) => handleUpdateConfig('p_min', v)}
                     className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
                   />
                   <span className="text-slate-400">mA</span>
                 </div>
               </div>
-
               <div className="flex items-center justify-between">
                 <div>
                   <span className="font-semibold text-slate-200">Cảnh báo lõi lọc bẩn (p_dirty)</span>
-                  <p className="text-[11px] text-slate-500">&gt; mức này 5s báo E3 vệ sinh lõi (0 = tắt)</p>
+                  <p className="text-[11px] text-slate-500">&gt; mức này 5s báo E3; cũng là mốc 0 % độ sạch lõi (0 = tắt)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
+                  <NumField
+                    value={config?.p_dirty ?? 0}
                     step={10}
-                    value={config?.p_dirty || 0}
-                    onChange={(e) => handleUpdateConfig('p_dirty', Number(e.target.value))}
+                    onCommit={(v) => handleUpdateConfig('p_dirty', v)}
                     className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
                   />
                   <span className="text-slate-400">mA</span>
                 </div>
               </div>
-
               <div className="flex items-center justify-between">
                 <div>
                   <span className="font-semibold text-rose-300">Khóa dừng khẩn cấp quá dòng (p_block)</span>
                   <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt bơm khóa máy (E2)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
+                  <NumField
+                    value={config?.p_block ?? 1500}
                     step={50}
-                    value={config?.p_block || 1500}
-                    onChange={(e) => handleUpdateConfig('p_block', Number(e.target.value))}
+                    onCommit={(v) => handleUpdateConfig('p_block', v)}
                     className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
                   />
                   <span className="text-slate-400">mA</span>
                 </div>
               </div>
+              {config?.valve === 1 && (
+                <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-slate-200">Van lọc: dòng tối thiểu (v_min)</span>
+                  <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như van không mở (E5)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <NumField
+                    value={config?.v_min ?? 50}
+                    step={10}
+                    onCommit={(v) => handleUpdateConfig('v_min', v)}
+                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-rose-300">Van lọc: quá dòng (v_max)</span>
+                  <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt, khóa máy (E6)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <NumField
+                    value={config?.v_max ?? 1000}
+                    step={50}
+                    onCommit={(v) => handleUpdateConfig('v_max', v)}
+                    className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+                </>
+              )}
+              {config?.drain === 1 && (
+                <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-slate-200">Van xả: dòng tối thiểu (d_vmin)</span>
+                  <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như van xả không mở (E11)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <NumField
+                    value={config?.d_vmin ?? 50}
+                    step={10}
+                    onCommit={(v) => handleUpdateConfig('d_vmin', v)}
+                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-rose-300">Van xả: quá dòng (d_vmax)</span>
+                  <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt, khóa máy (E12)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <NumField
+                    value={config?.d_vmax ?? 1000}
+                    step={50}
+                    onCommit={(v) => handleUpdateConfig('d_vmax', v)}
+                    className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -549,15 +669,16 @@ export const TechTab: React.FC<TechTabProps> = ({
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
               <div className="font-semibold text-slate-200">Đo điểm 0 A (ACS_ZERO)</div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Máy sẽ đo điện áp tĩnh khi không có dòng điện đi qua. Bơm và van bắt buộc phải đang tắt.
+                Máy sẽ đo điện áp tĩnh khi không có dòng điện đi qua. Bơm, van lọc và van xả bắt buộc phải đang tắt.
               </p>
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-400 font-mono">
                   z_p: {config?.z_p.toFixed(3)}V · z_v: {config?.z_v.toFixed(3)}V
+                  {config?.drain === 1 ? ` · z_d: ${config.z_d.toFixed(3)}V` : ''}
                 </span>
                 <button
                   onClick={handleAcsZero}
-                  disabled={status?.p[0] === 1 || status?.v[1] === 1}
+                  disabled={status?.p[0] === 1 || status?.v[1] === 1 || status?.d[1] === 1}
                   className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-all shadow-sm"
                 >
                   Đo 0 A ngay
@@ -582,6 +703,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                   >
                     <option value={0}>Bơm lọc (ch 0)</option>
                     <option value={1}>Van lọc (ch 1)</option>
+                    <option value={2}>Van xả (ch 2)</option>
                   </select>
                 </div>
                 <div>
@@ -599,6 +721,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-400 font-mono">
                   k_p: {config?.k_p.toFixed(1)} · k_v: {config?.k_v.toFixed(1)}
+                  {config?.drain === 1 ? ` · k_d: ${config.k_d.toFixed(1)}` : ''}
                 </span>
                 <button
                   onClick={handleAcsCalibrate}
@@ -616,13 +739,10 @@ export const TechTab: React.FC<TechTabProps> = ({
                 <div className="text-[11px] text-slate-400">Cân chỉnh đầu dò DS18B20 (-10 đến +10 °C)</div>
               </div>
               <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  step={0.5}
-                  min={-10}
-                  max={10}
-                  value={config?.off_t || 0}
-                  onChange={(e) => handleUpdateConfig('off_t', Number(e.target.value))}
+                <NumField
+                  value={config?.off_t ?? 0}
+                  step={0.1}
+                  onCommit={(v) => handleUpdateConfig('off_t', Math.round(v * 10) / 10)}
                   className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
                 />
                 <span className="text-slate-400">°C</span>
