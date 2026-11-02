@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { applyPacket, INITIAL_APP_STATE, PacketAssembler } from '../src/services/packetParser';
-import { formatCurrent, isLockedFault, parseErrors } from '../src/types/system';
+import { formatCurrent, isLockedFault, parseErrors, UfIncomingPacket } from '../src/types/system';
 
 describe('Packet Assembler & UTF-8 Chunk Splitting', () => {
   it('correctly reassembles packets sliced in the middle of multi-byte UTF-8 Vietnamese characters', () => {
@@ -72,7 +72,12 @@ describe('Packet Assembler & UTF-8 Chunk Splitting', () => {
       maxblk: 110000,
     };
 
-    const newState = applyPacket(INITIAL_APP_STATE, packetWithNulls);
+    // Goi tu firmware cu: chua co fcl / rdur / d / dleft / dnext_t -> parser dung gia tri mac dinh
+    const newState = applyPacket(INITIAL_APP_STATE, packetWithNulls as unknown as UfIncomingPacket);
+    expect(newState.status?.fcl).toBe(-1);
+    expect(newState.status?.d).toEqual([0, 0, 0, 0]);
+    expect(newState.status?.dleft).toBe(0);
+    expect(newState.status?.dnext_t).toBe(0);
     expect(newState.status?.tds).toBeNull();
     expect(newState.status?.w).toBeNull();
     expect(newState.status?.tds_age).toBeNull();
@@ -120,5 +125,29 @@ describe('Formatters & Error Bitmask Translation', () => {
     expect(isLockedFault(1 << 5)).toBe(true); // contains E6
     expect(isLockedFault(1 << 0)).toBe(false); // E1 alone is not locking
     expect(isLockedFault(1 << 2)).toBe(false); // E3 alone is not locking
+    expect(isLockedFault(1 << 11)).toBe(true); // E12 van xa qua dong: khoa
+    expect(isLockedFault(1 << 10)).toBe(false); // E11 van xa khong mo: khong khoa
+  });
+
+  it('parses water change errors E11 / E12', () => {
+    const errors = parseErrors((1 << 10) | (1 << 11), 0);
+    expect(errors.map((e) => e.code)).toEqual(['E11', 'E12']);
+    expect(errors[1].isLocking).toBe(true);
+  });
+
+  it('parses drain + filter cleanliness fields of firmware 1.0.0 settings v2', () => {
+    const st = applyPacket(INITIAL_APP_STATE, {
+      t: 'st', d: [1, 1, 1, 180], dleft: 42, dnext_t: 1793577600, fcl: 92, fcl_ma: 260, rdur: 239,
+    } as unknown as UfIncomingPacket);
+    expect(st.status?.d).toEqual([1, 1, 1, 180]);
+    expect(st.status?.dleft).toBe(42);
+    expect(st.status?.fcl).toBe(92);
+    expect(st.status?.rdur).toBe(239);
+    const cf = applyPacket(INITIAL_APP_STATE, {
+      t: 'cf', drain: 1, d_days: 3, d_hour: 23, d_min: 30, d_sec: 90,
+    } as unknown as UfIncomingPacket);
+    expect(cf.config?.drain).toBe(1);
+    expect(cf.config?.d_hour).toBe(23);
+    expect(cf.config?.d_sec).toBe(90);
   });
 });
