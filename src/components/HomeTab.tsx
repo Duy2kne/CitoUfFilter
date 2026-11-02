@@ -11,8 +11,10 @@ import {
   CheckCircle2,
   Clock,
   Droplet,
+  Filter,
   Flame,
   Gauge,
+  RefreshCw,
   HelpCircle,
   Play,
   Power,
@@ -26,7 +28,9 @@ import {
   FILTER_MODES,
   formatCurrent,
   formatDuration,
+  formatLocalHm,
   formatTdsAge,
+  isLockedFault,
   parseErrors,
   UfConfig,
   UfStatus,
@@ -51,6 +55,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const [localNext, setLocalNext] = useState<number>(-1);
   const [localRunLeft, setLocalRunLeft] = useState<number>(0);
   const [isMeasuringLoading, setIsMeasuringLoading] = useState(false);
+  const [isDrainLoading, setIsDrainLoading] = useState(false);
 
   useEffect(() => {
     if (!status) return;
@@ -67,7 +72,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   }, []);
 
   const isPowerOn = status ? status.pw === 1 : true;
-  const isFiltering = status ? status.st === 2 || status.st === 3 : false;
+  const isDraining = status ? status.st === 6 : false;
+  // Bom dang chay 1 luot co tien do (loc lich / loc tay / thay nuoc)
+  const isFiltering = status ? status.st === 2 || status.st === 3 || status.st === 6 : false;
   const isManual = status ? status.man === 1 : false;
   const isMeasuring = status ? status.st === 4 : false;
   const isFault = status ? status.st === 5 : false;
@@ -77,13 +84,14 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     : FILTER_MODES[3];
 
   const activeErrors = status ? parseErrors(status.err, status.wrn) : [];
-  const hasLockError = status ? (status.err & 0x22) !== 0 : false;
+  const hasLockError = status ? isLockedFault(status.err) : false;
+  const hasDrainValve = (config?.drain ?? 0) === 1 || (status?.d?.[0] ?? 0) === 1;
 
-  // Circular gauge calculations
+  // Circular gauge calculations: vong chay theo phan DA chay cua luot (giong man hinh may)
   const totalRunSecs = status?.run.tot || (config?.fmin ? config.fmin * 60 : 1800);
   const remainingSecs = Math.max(0, localRunLeft);
   const progressRatio = isFiltering && totalRunSecs > 0
-    ? Math.min(1, Math.max(0, remainingSecs / totalRunSecs))
+    ? Math.min(1, Math.max(0, 1 - remainingSecs / totalRunSecs))
     : 0;
 
   // SVG parameters
@@ -110,6 +118,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     }
     if (isMeasuring) {
       return { text: 'Đang đo TDS nước…', color: 'text-purple-400', glow: 'from-purple-600/30 to-transparent' };
+    }
+    if (isDraining) {
+      return { text: 'Đang thay nước (xả)', color: 'text-orange-400', glow: 'from-orange-600/30 to-transparent' };
     }
     if (status.st === 3) {
       return { text: 'Đang lọc tay', color: 'text-blue-400', glow: 'from-blue-600/30 to-transparent' };
@@ -158,6 +169,38 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const handleClearFaults = () => {
     onSendCommand('CLEAR_FAULTS');
   };
+
+  const handleToggleDrain = async () => {
+    if (!status) return;
+    if (isDraining) {
+      onSendCommand('DRAIN', { on: false });
+      return;
+    }
+    onRequestConfirm(
+      'Thay nước ngay?',
+      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(config?.d_sec ?? 60)}. Tiếp tục?`,
+      async () => {
+        try {
+          setIsDrainLoading(true);
+          await onSendCommand('DRAIN', { on: true });
+        } finally {
+          setIsDrainLoading(false);
+        }
+      }
+    );
+  };
+
+  const handleFilterReset = () => {
+    onRequestConfirm(
+      'Đã thay lõi lọc mới?',
+      'Máy sẽ quên dòng bơm lúc lõi sạch cũ và học lại ở lượt lọc sau (độ sạch tạm hiện "chưa biết").',
+      () => onSendCommand('FILTER_RESET')
+    );
+  };
+
+  // Do sach loi loc: xanh >= 50 %, vang 20-50 %, do < 20 %
+  const fcl = status?.fcl ?? -1;
+  const fclColor = fcl < 0 ? 'bg-slate-700' : fcl >= 50 ? 'bg-emerald-500' : fcl >= 20 ? 'bg-amber-500' : 'bg-rose-500';
 
   const handleSyncTime = () => {
     const localEpochSeconds = Math.floor(Date.now() / 1000 - new Date().getTimezoneOffset() * 60);
@@ -211,7 +254,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
 
                 {/* Inline Action for Specific Error */}
                 <div className="shrink-0 pt-0.5">
-                  {(err.code === 'E1' || err.code === 'E2' || err.code === 'E5' || err.code === 'E6') && (
+                  {['E1', 'E2', 'E5', 'E6', 'E11', 'E12'].includes(err.code) && (
                     <button
                       onClick={handleClearFaults}
                       className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-sm transition-all"
@@ -326,7 +369,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             0 ph
           </div>
           <div className="absolute bottom-4 right-6 text-[10px] font-mono text-slate-500">
-            {config?.fmin || 30} ph
+            {isFiltering ? Math.max(1, Math.round(totalRunSecs / 60)) : config?.fmin || 30} ph
           </div>
         </div>
       </div>
@@ -369,7 +412,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-xs text-slate-400 font-medium">
-              {isFiltering ? 'Thời gian còn lại' : 'Lần lọc tiếp theo'}
+              {isDraining ? 'Thay nước còn lại' : isFiltering ? 'Thời gian còn lại' : 'Lần lọc tiếp theo'}
             </div>
 
             {isFiltering ? (
@@ -409,6 +452,93 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Loi loc + Thay nuoc */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        {/* Do sach loi loc (theo dong bom) */}
+        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
+              <Filter className="w-4 h-4 text-cyan-400" />
+              <span>Độ sạch lõi lọc</span>
+            </div>
+            <span className="text-lg font-black font-mono text-slate-100">{fcl < 0 ? '—' : `${fcl}%`}</span>
+          </div>
+          <div className="mt-2 h-2.5 rounded-full bg-slate-800 overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${fclColor}`} style={{ width: `${fcl < 0 ? 0 : fcl}%` }} />
+          </div>
+          <div className="flex items-center justify-between mt-2 gap-2">
+            <span className="text-[11px] text-slate-400">
+              {fcl < 0
+                ? (config?.p_dirty ?? 0) === 0
+                  ? 'Đang tắt cảnh báo lõi bẩn (p_dirty = 0)'
+                  : 'Máy học sau khi bơm chạy ổn định'
+                : `Lõi sạch ${status?.fcl_ma ?? 0} mA · bẩn ở ${config?.p_dirty ?? 0} mA`}
+            </span>
+            <button
+              onClick={handleFilterReset}
+              disabled={!status}
+              className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-cyan-300 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-800/60 disabled:opacity-40 transition-all"
+            >
+              Đã thay lõi
+            </button>
+          </div>
+        </div>
+
+        {/* Thay nuoc (van xa tuy chon) */}
+        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
+              <RefreshCw className={`w-4 h-4 text-orange-400 ${isDraining ? 'animate-spin' : ''}`} />
+              <span>Thay nước (xả)</span>
+            </div>
+            {hasDrainValve && (
+              <span className="text-[11px] text-slate-400">
+                Mỗi {config?.d_days ?? 3} ngày · xả {formatDuration(config?.d_sec ?? 60)}
+              </span>
+            )}
+          </div>
+          {!hasDrainValve ? (
+            <div className="text-[11px] text-slate-400 mt-2">
+              Chưa lắp van xả. Bật mục &quot;Có lắp van xả&quot; trong tab Kỹ thuật để dùng thay nước tự động.
+            </div>
+          ) : (
+            <div className="flex items-end justify-between mt-1.5 gap-2">
+              <div>
+                {isDraining ? (
+                  <div className="text-sm font-bold font-mono text-orange-300">
+                    Đang xả · còn {formatDuration(status?.dleft ?? 0)}
+                  </div>
+                ) : (
+                  <div className="text-sm font-bold font-mono text-slate-100">
+                    {status?.dnext_t ? `Lần tới ${formatLocalHm(status.dnext_t)}` : 'Chưa có giờ'}
+                    {status?.dnext_t ? (
+                      <span className="text-[11px] font-normal text-slate-400 ml-1.5">
+                        {new Date(status.dnext_t * 1000).getUTCDate().toString().padStart(2, '0')}/
+                        {(new Date(status.dnext_t * 1000).getUTCMonth() + 1).toString().padStart(2, '0')}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {status ? `Van xả ${status.d[1] === 1 ? 'mở' : 'đóng'} · ${formatCurrent(status.d[3])}` : '—'}
+                </div>
+              </div>
+              <button
+                onClick={handleToggleDrain}
+                disabled={!isPowerOn || hasLockError || isDrainLoading}
+                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 ${
+                  isDraining
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400/40'
+                    : 'bg-orange-950/70 hover:bg-orange-900 text-orange-300 border-orange-800/60'
+                }`}
+              >
+                {isDraining ? 'Dừng xả' : 'Thay nước ngay'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
