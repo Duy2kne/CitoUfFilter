@@ -1,0 +1,6 @@
+{
+  "name": "CITO UF FILTER - Điều Khiển Máy Lọc Nước Hồ Cá",
+  "description": "Ứng dụng Web Bluetooth điều khiển và giám sát máy lọc nước hồ cá CITO UF FILTER",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

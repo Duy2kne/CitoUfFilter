@@ -1,0 +1,878 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState } from 'react';
+import {
+  Activity,
+  AlertOctagon,
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  Flame,
+  Gauge,
+  HelpCircle,
+  KeyRound,
+  Lock,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Sliders,
+  Sparkles,
+  Thermometer,
+  Trash2,
+  Volume2,
+  Wifi,
+  Zap,
+} from 'lucide-react';
+import {
+  formatCurrent,
+  formatDuration,
+  UfConfig,
+  UfStatus,
+} from '../types/system';
+
+interface TechTabProps {
+  status: UfStatus | null;
+  config: UfConfig | null;
+  wifiList: [string, number, number][];
+  isDemo: boolean;
+  onSendCommand: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
+  onRequestConfirm: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
+  onInjectDemoFault: (code: number) => void;
+  onClearDemoFaults: () => void;
+}
+
+export const TechTab: React.FC<TechTabProps> = ({
+  status,
+  config,
+  wifiList,
+  isDemo,
+  onSendCommand,
+  onRequestConfirm,
+  onInjectDemoFault,
+  onClearDemoFaults,
+}) => {
+  // Collapsible section open states
+  const [openSection, setOpenSection] = useState<string | null>(null);
+
+  // Calibration Form States
+  const [tdsCalPpm, setTdsCalPpm] = useState<number>(140);
+  const [acsChannel, setAcsChannel] = useState<number>(0);
+  const [acsClampMa, setAcsClampMa] = useState<number>(380);
+
+  // WiFi Form States
+  const [selectedSsid, setSelectedSsid] = useState<string>('');
+  const [wifiPass, setWifiPass] = useState<string>('');
+  const [isScanningWifi, setIsScanningWifi] = useState(false);
+
+  // PIN Form State
+  const [newPin, setNewPin] = useState<string>('');
+
+  const toggleSection = (id: string) => {
+    setOpenSection(openSection === id ? null : id);
+  };
+
+  const handleUpdateConfig = (key: string, val: unknown) => {
+    onSendCommand('SET', { [key]: val });
+  };
+
+  // Auto baseline currents calculator
+  const handleAutoCurrentBaseline = () => {
+    if (!status || status.p[2] < 50) {
+      alert('Vui lòng bật bơm trước (phải có dòng hoạt động >= 50 mA) để đo chuẩn.');
+      return;
+    }
+    const currentPumpMa = status.p[2];
+    const suggestedDirty = Math.round(currentPumpMa * 1.3);
+    const suggestedBlock = Math.round(currentPumpMa * 2.0);
+
+    onRequestConfirm(
+      'Áp dụng ngưỡng bảo vệ dòng gợi ý?',
+      `Dòng đo hiện tại của bơm: ${formatCurrent(currentPumpMa)}.\n\n• Cảnh báo lõi bẩn (p_dirty): ${suggestedDirty} mA (+30%)\n• Ngắt khẩn cấp quá dòng (p_block): ${suggestedBlock} mA (+100%)\n\nBạn có muốn lưu các giá trị này không?`,
+      () => {
+        onSendCommand('SET', {
+          p_dirty: suggestedDirty,
+          p_block: suggestedBlock,
+        });
+      }
+    );
+  };
+
+  // Zero-current calibration
+  const handleAcsZero = () => {
+    onSendCommand('ACS_ZERO');
+  };
+
+  // Clamp meter calibration
+  const handleAcsCalibrate = () => {
+    onSendCommand('ACS_CAL', { ch: acsChannel, ma: acsClampMa });
+  };
+
+  // TDS Calibration
+  const handleTdsCalibrate = () => {
+    onSendCommand('TDS_CAL', { ppm: tdsCalPpm });
+  };
+
+  // WiFi Scan
+  const handleScanWifi = async () => {
+    try {
+      setIsScanningWifi(true);
+      await onSendCommand('WIFI_SCAN');
+    } finally {
+      setIsScanningWifi(false);
+    }
+  };
+
+  const handleSaveWifi = () => {
+    if (!selectedSsid) return;
+    onSendCommand('WIFI_SET', { ssid: selectedSsid, pass: wifiPass });
+  };
+
+  const handleClearWifi = () => {
+    onRequestConfirm(
+      'Xóa WiFi nhà?',
+      'Máy lọc sẽ mất kết nối Internet và không thể tự đồng bộ giờ hoặc nạp firmware qua IP nhà.',
+      () => onSendCommand('WIFI_CLEAR'),
+      true
+    );
+  };
+
+  const handleSetPin = () => {
+    if (newPin.length < 4 || newPin.length > 8) {
+      alert('Mã PIN mới phải từ 4 đến 8 ký tự.');
+      return;
+    }
+    onSendCommand('SET_PIN', { pin: newPin });
+    setNewPin('');
+  };
+
+  const handleFactoryReset = () => {
+    onRequestConfirm(
+      'Khôi phục cài đặt mặc định?',
+      'Toàn bộ lịch lọc và ngưỡng cảnh báo sẽ trở về mặc định của nhà sản xuất. Cấu hình WiFi và hiệu chuẩn cảm biến được giữ nguyên.',
+      () => onSendCommand('DEFAULTS'),
+      true
+    );
+  };
+
+  const handleReboot = () => {
+    onRequestConfirm(
+      'Khởi động lại máy lọc?',
+      'Máy sẽ khởi động lại phần mềm sau khoảng 0.8 giây. Kết nối Bluetooth sẽ tự động kết nối lại.',
+      () => onSendCommand('REBOOT')
+    );
+  };
+
+  // Pump run timer for TDS Calibration (pump must have run continuously for >= 20s)
+  const isPumpRunningForTds = status?.p[0] === 1;
+  const elapsedRunSeconds = status ? status.run.tot - status.run.left : 0;
+  const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= 20;
+
+  return (
+    <div className="space-y-4 pb-12 animate-in fade-in duration-200">
+      {/* Notice header */}
+      <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 flex items-start gap-3">
+        <Sliders className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+        <div>
+          <h2 className="text-sm font-bold text-slate-100">Cài đặt Kỹ thuật & Hiệu chuẩn</h2>
+          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+            Dành cho thợ lắp đặt hoặc người am hiểu thiết bị. Vui lòng chỉ điều chỉnh khi nắm rõ thông số để đảm bảo an toàn cho máy bơm.
+          </p>
+        </div>
+      </div>
+
+      {/* Demo Fault Injector (Only active in Demo mode) */}
+      {isDemo && (
+        <div className="p-4 rounded-3xl bg-indigo-950/40 border border-indigo-500/40 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-400" />
+              <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider">
+                Thử nghiệm lỗi (Chế độ Demo)
+              </span>
+            </div>
+            <button
+              onClick={onClearDemoFaults}
+              className="text-xs text-indigo-300 hover:text-white font-semibold underline underline-offset-2"
+            >
+              Xóa sạch lỗi giả lập
+            </button>
+          </div>
+          <p className="text-[11px] text-indigo-300/80 leading-normal">
+            Bấm vào các nút dưới đây để tạo lỗi giả lập và kiểm tra phản ứng của giao diện và còi báo:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => onInjectDemoFault(1)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-blue-950 border border-blue-700/60 text-blue-300 hover:bg-blue-900"
+            >
+              + E1 (Bơm mất dòng)
+            </button>
+            <button
+              onClick={() => onInjectDemoFault(2)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-rose-950 border border-rose-700/60 text-rose-300 hover:bg-rose-900"
+            >
+              + E2 (Bơm quá dòng - Khóa)
+            </button>
+            <button
+              onClick={() => onInjectDemoFault(3)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-amber-950 border border-amber-700/60 text-amber-300 hover:bg-amber-900"
+            >
+              + E3 (Lõi lọc bẩn)
+            </button>
+            <button
+              onClick={() => onInjectDemoFault(5)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-blue-950 border border-blue-700/60 text-blue-300 hover:bg-blue-900"
+            >
+              + E5 (Van không mở)
+            </button>
+            <button
+              onClick={() => onInjectDemoFault(10)}
+              className="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-amber-950 border border-amber-700/60 text-amber-300 hover:bg-amber-900"
+            >
+              + E10 (TDS vượt ngưỡng)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Accordion 1: Thiết bị & Tính năng */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('features')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Flame className="w-5 h-5 text-cyan-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">1. Cấu hình Thiết bị & Còi báo</div>
+              <div className="text-xs text-slate-400">Van lọc, tự đo TDS, ngưỡng báo động, còi bíp</div>
+            </div>
+          </div>
+          {openSection === 'features' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'features' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* Có van lọc */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div className="font-semibold text-slate-200">Có lắp van lọc điện từ (valve)</div>
+                <div className="text-slate-400 mt-0.5 text-[11px]">
+                  Tắt nếu hồ chỉ dùng bơm trực tiếp. Bật: mở van trước rồi mới bật bơm.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={config?.valve === 1}
+                onChange={(e) => handleUpdateConfig('valve', e.target.checked ? 1 : 0)}
+                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Tự đo TDS khi nghỉ lâu */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div className="font-semibold text-slate-200">Tự đo TDS khi nghỉ lâu (tds_auto)</div>
+                <div className="text-slate-400 mt-0.5 text-[11px]">
+                  Tự chạy bơm 25 giây để làm mới số đo TDS sau mỗi 1 giờ máy nghỉ.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={config?.tds_auto === 1}
+                onChange={(e) => handleUpdateConfig('tds_auto', e.target.checked ? 1 : 0)}
+                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Ngưỡng cảnh báo TDS */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="flex justify-between">
+                <div>
+                  <div className="font-semibold text-slate-200">Ngưỡng cảnh báo TDS cao (tds_alarm)</div>
+                  <div className="text-slate-400 text-[11px]">Khi TDS vượt mức này máy sẽ báo E10 (0 = tắt cảnh báo)</div>
+                </div>
+                <span className="font-mono text-cyan-400 font-bold">{config?.tds_alarm || 0} ppm</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1500}
+                step={25}
+                value={config?.tds_alarm || 0}
+                onChange={(e) => handleUpdateConfig('tds_alarm', Number(e.target.value))}
+                className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-900 rounded"
+              />
+            </div>
+
+            {/* Còi & Bíp */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+                <span className="text-slate-200 font-medium">Bíp khi bấm phím</span>
+                <input
+                  type="checkbox"
+                  checked={config?.bz_key === 1}
+                  onChange={(e) => handleUpdateConfig('bz_key', e.target.checked ? 1 : 0)}
+                  className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+                <span className="text-slate-200 font-medium">Còi hú khi có lỗi</span>
+                <input
+                  type="checkbox"
+                  checked={config?.bz_alarm === 1}
+                  onChange={(e) => handleUpdateConfig('bz_alarm', e.target.checked ? 1 : 0)}
+                  className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion 2: Bảo vệ dòng điện (Bơm & Van) */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('current')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Zap className="w-5 h-5 text-amber-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">2. Bảo vệ dòng điện Bơm & Van</div>
+              <div className="text-xs text-slate-400">Ngắt quá dòng, cảnh báo lõi bẩn, kẹt rotor</div>
+            </div>
+          </div>
+          {openSection === 'current' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'current' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* Live readout banner */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-400" />
+                <span className="text-slate-300">Dòng thực tế lúc này:</span>
+              </div>
+              <div className="flex items-center gap-4 font-mono font-bold">
+                <span className="text-cyan-400">Bơm: {status ? formatCurrent(status.p[2]) : '—'}</span>
+                {config?.valve === 1 && (
+                  <span className="text-blue-400">Van: {status ? formatCurrent(status.v[3]) : '—'}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Auto Suggestion Button */}
+            <button
+              onClick={handleAutoCurrentBaseline}
+              className="w-full py-2.5 px-3 rounded-xl bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 font-semibold transition-all flex items-center justify-center gap-2"
+            >
+              <Zap className="w-4 h-4" />
+              <span>Lấy dòng hiện tại làm chuẩn (gợi ý tự động)</span>
+            </button>
+
+            {/* Threshold inputs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-slate-200">Dòng tối thiểu bơm (p_min)</span>
+                  <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như bơm không chạy (E1)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step={10}
+                    value={config?.p_min || 150}
+                    onChange={(e) => handleUpdateConfig('p_min', Number(e.target.value))}
+                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-slate-200">Cảnh báo lõi lọc bẩn (p_dirty)</span>
+                  <p className="text-[11px] text-slate-500">&gt; mức này 5s báo E3 vệ sinh lõi (0 = tắt)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step={10}
+                    value={config?.p_dirty || 0}
+                    onChange={(e) => handleUpdateConfig('p_dirty', Number(e.target.value))}
+                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-rose-300">Khóa dừng khẩn cấp quá dòng (p_block)</span>
+                  <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt bơm khóa máy (E2)</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step={50}
+                    value={config?.p_block || 1500}
+                    onChange={(e) => handleUpdateConfig('p_block', Number(e.target.value))}
+                    className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
+                  />
+                  <span className="text-slate-400">mA</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion 3: Hiệu chuẩn TDS */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('tds_cal')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Gauge className="w-5 h-5 text-purple-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">3. Hiệu chuẩn cảm biến TDS</div>
+              <div className="text-xs text-slate-400">Dung dịch chuẩn hoặc bút đo tham chiếu</div>
+            </div>
+          </div>
+          {openSection === 'tds_cal' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'tds_cal' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* Live TDS Readings */}
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <span className="text-slate-400">TDS tức thời (tds_live):</span>
+                <div className="text-base font-bold font-mono text-purple-300 mt-0.5">
+                  {status ? `${status.tds_live} ppm` : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-400">Hệ số hiệu chuẩn (tds_k):</span>
+                <div className="text-base font-bold font-mono text-cyan-300 mt-0.5">
+                  {config?.tds_k ? config.tds_k.toFixed(3) : '1.000'}
+                </div>
+              </div>
+            </div>
+
+            {/* 3 Step Guide */}
+            <div className="space-y-2.5 p-3.5 rounded-2xl bg-purple-950/20 border border-purple-800/40">
+              <span className="font-bold text-purple-200">Quy trình hiệu chuẩn TDS chuẩn 3 bước:</span>
+              <ol className="list-decimal list-inside space-y-1 text-slate-300 leading-relaxed text-[11px]">
+                <li>
+                  Bấm <strong className="text-cyan-300">Lọc ngay</strong> để bơm đẩy dòng nước lưu thông liên tục qua đầu dò.
+                </li>
+                <li>
+                  Chờ bơm chạy tối thiểu <strong className="text-purple-300">20 giây</strong> (nước ổn định bọt khí).
+                </li>
+                <li>
+                  Nhập chỉ số TDS đo được từ bút đo chuẩn vào ô bên dưới rồi bấm Lưu.
+                </li>
+              </ol>
+            </div>
+
+            {/* Run time indicator */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+              <span className="text-slate-300">Thời gian bơm chạy liên tục:</span>
+              <span
+                className={`font-mono font-bold ${
+                  isTdsReady ? 'text-emerald-400' : 'text-amber-400'
+                }`}
+              >
+                {isPumpRunningForTds ? `${elapsedRunSeconds} giây` : 'Bơm đang tắt'}
+                {isTdsReady ? ' (Đủ điều kiện)' : ' (Cần ≥ 20s)'}
+              </span>
+            </div>
+
+            {/* Form */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-slate-400 mb-1">Chỉ số TDS chuẩn (10–2000 ppm):</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={2000}
+                  value={tdsCalPpm}
+                  onChange={(e) => setTdsCalPpm(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 font-mono"
+                />
+              </div>
+              <div className="self-end">
+                <button
+                  onClick={handleTdsCalibrate}
+                  disabled={!isTdsReady}
+                  className={`px-4 py-2.5 rounded-xl font-semibold shadow-md transition-all ${
+                    isTdsReady
+                      ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-950/60 active:scale-95'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  }`}
+                >
+                  Lưu TDS_CAL
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion 4: Hiệu chuẩn cảm biến dòng ACS712 */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('acs_cal')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Activity className="w-5 h-5 text-teal-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">4. Hiệu chuẩn cảm biến dòng ACS712</div>
+              <div className="text-xs text-slate-400">Đo điểm 0 A và cân chỉnh theo ampe kìm</div>
+            </div>
+          </div>
+          {openSection === 'acs_cal' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'acs_cal' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* ACS Zero Calibration */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="font-semibold text-slate-200">Đo điểm 0 A (ACS_ZERO)</div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Máy sẽ đo điện áp tĩnh khi không có dòng điện đi qua. Bơm và van bắt buộc phải đang tắt.
+              </p>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-slate-400 font-mono">
+                  z_p: {config?.z_p.toFixed(3)}V · z_v: {config?.z_v.toFixed(3)}V
+                </span>
+                <button
+                  onClick={handleAcsZero}
+                  disabled={status?.p[0] === 1 || status?.v[1] === 1}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 disabled:text-slate-500 text-white transition-all shadow-sm"
+                >
+                  Đo 0 A ngay
+                </button>
+              </div>
+            </div>
+
+            {/* ACS Clamp Meter Calibration */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="font-semibold text-slate-200">Chỉnh hệ số theo Ampe kìm (ACS_CAL)</div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Kênh đo phải đang chạy thực tế (dòng ≥ 50 mA). Bấm &quot;Lọc ngay&quot; trước khi đo bằng ampe kìm.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Chọn kênh:</label>
+                  <select
+                    value={acsChannel}
+                    onChange={(e) => setAcsChannel(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100"
+                  >
+                    <option value={0}>Bơm lọc (ch 0)</option>
+                    <option value={1}>Van lọc (ch 1)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Dòng đo thực (mA):</label>
+                  <input
+                    type="number"
+                    step={10}
+                    value={acsClampMa}
+                    onChange={(e) => setAcsClampMa(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 font-mono text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-slate-400 font-mono">
+                  k_p: {config?.k_p.toFixed(1)} · k_v: {config?.k_v.toFixed(1)}
+                </span>
+                <button
+                  onClick={handleAcsCalibrate}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-sm"
+                >
+                  Lưu hệ số ACS_CAL
+                </button>
+              </div>
+            </div>
+
+            {/* Temperature offset */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div className="font-semibold text-slate-200">Bù sai số nhiệt độ (off_t)</div>
+                <div className="text-[11px] text-slate-400">Cân chỉnh đầu dò DS18B20 (-10 đến +10 °C)</div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  step={0.5}
+                  min={-10}
+                  max={10}
+                  value={config?.off_t || 0}
+                  onChange={(e) => handleUpdateConfig('off_t', Number(e.target.value))}
+                  className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
+                />
+                <span className="text-slate-400">°C</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion 5: WiFi & Nạp Firmware */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('wifi')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Wifi className="w-5 h-5 text-sky-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">5. WiFi nhà & Nạp Firmware OTA</div>
+              <div className="text-xs text-slate-400">Đồng bộ giờ Internet NTP, cập nhật phần mềm</div>
+            </div>
+          </div>
+          {openSection === 'wifi' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'wifi' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* Status card */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">WiFi hiện tại:</span>
+                <span className="font-bold text-sky-400">
+                  {config?.ssid ? config.ssid : 'Chưa cấu hình'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Địa chỉ IP:</span>
+                <span className="font-mono text-slate-200">
+                  {status?.wifi.ip ? status.wifi.ip : '192.168.4.1'}
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-400/90 leading-normal pt-1">
+                * Khi có WiFi nhà, máy sẽ tự lấy giờ chuẩn từ Internet. Mất điện có lại máy vẫn chạy đúng lịch mà không cần mở app điện thoại.
+              </p>
+            </div>
+
+            {/* Scan WiFi Action */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={handleScanWifi}
+                disabled={isScanningWifi}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-950/70 hover:bg-sky-900 border border-sky-800/50 text-sky-300 font-semibold"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isScanningWifi ? 'animate-spin' : ''}`} />
+                <span>{isScanningWifi ? 'Đang dò sóng…' : 'Quét danh sách WiFi'}</span>
+              </button>
+
+              {config?.ssid && (
+                <button
+                  onClick={handleClearWifi}
+                  className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-950/70 border border-rose-900/40 text-rose-300 font-medium"
+                >
+                  Xóa WiFi
+                </button>
+              )}
+            </div>
+
+            {/* Scanned WiFi List */}
+            {wifiList.length > 0 && (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {wifiList.map(([ssid, rssi, enc], i) => (
+                  <button
+                    key={`${ssid}_${i}`}
+                    onClick={() => setSelectedSsid(ssid)}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all ${
+                      selectedSsid === ssid
+                        ? 'bg-sky-950/60 border-sky-500 text-sky-200'
+                        : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Wifi className="w-3.5 h-3.5 text-sky-400" />
+                      <span className="font-semibold">{ssid}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                      {enc === 1 && <Lock className="w-3 h-3 text-amber-400" />}
+                      <span>{rssi} dBm</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* WiFi Setup Form */}
+            <div className="space-y-2 pt-1">
+              <label className="block text-slate-400">Tên mạng (SSID):</label>
+              <input
+                type="text"
+                value={selectedSsid}
+                onChange={(e) => setSelectedSsid(e.target.value)}
+                placeholder="Chọn hoặc nhập tên WiFi"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+              />
+
+              <label className="block text-slate-400 pt-1">Mật khẩu WiFi:</label>
+              <input
+                type="password"
+                value={wifiPass}
+                onChange={(e) => setWifiPass(e.target.value)}
+                placeholder="Để trống nếu không đổi mật khẩu"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+              />
+
+              <button
+                onClick={handleSaveWifi}
+                disabled={!selectedSsid}
+                className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold transition-all shadow-md mt-2"
+              >
+                Lưu và kết nối WiFi
+              </button>
+            </div>
+
+            {/* OTA Instructions */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+              <div className="font-semibold text-slate-300 flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Nạp firmware dự phòng qua WiFi máy (AP):</span>
+              </div>
+              <p>
+                Kết nối điện thoại vào WiFi do máy phát:{' '}
+                <strong className="text-cyan-300 font-mono">{config?.ap || 'CITO-UF-XXXX'}</strong> (mật khẩu:{' '}
+                <code className="text-slate-200">citocito</code>), sau đó mở trình duyệt truy cập{' '}
+                <span className="text-cyan-300 underline font-mono">http://192.168.4.1</span> để nạp file .bin.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion 6: Thông tin máy & Hệ thống */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => toggleSection('system')}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Cpu className="w-5 h-5 text-slate-400" />
+            <div>
+              <div className="text-sm font-bold text-slate-100">6. Thông tin máy & Quản trị hệ thống</div>
+              <div className="text-xs text-slate-400">Đổi PIN, RAM, phiên bản firmware, khởi động lại</div>
+            </div>
+          </div>
+          {openSection === 'system' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {openSection === 'system' && (
+          <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* System Info Grid */}
+            <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <span className="text-slate-500">Phiên bản Firmware:</span>
+                <div className="font-mono font-bold text-slate-200 mt-0.5">{config?.fw || '1.0.0'}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">Mã thiết bị (MAC):</span>
+                <div className="font-mono font-bold text-slate-200 mt-0.5">{config?.dev || '—'}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">Lý do khởi động:</span>
+                <div className="font-mono font-bold text-amber-300 mt-0.5">
+                  {config?.rst || 'POWERON'}
+                  {(config?.rst === 'WDT' || config?.rst === 'PANIC' || config?.rst === 'BROWNOUT') && (
+                    <span className="text-[10px] text-rose-400 block font-normal">(Từng bị treo/sụt nguồn)</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-500">Thời gian chạy (Uptime):</span>
+                <div className="font-mono font-bold text-slate-200 mt-0.5">
+                  {status ? formatDuration(status.up) : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-500">Bộ nhớ RAM trống:</span>
+                <div className="font-mono text-slate-300 mt-0.5">
+                  {status ? `${Math.round(status.heap / 1024)} KB` : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-500">Đồng hồ máy (tk):</span>
+                <div className="font-bold mt-0.5">
+                  {status?.tk === 1 ? (
+                    <span className="text-emerald-400">Đã chuẩn giờ</span>
+                  ) : (
+                    <span className="text-rose-400">Chưa có giờ</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {config?.pend === 1 && (
+              <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-600/50 text-amber-200 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>Firmware mới nạp, đang trong thời gian xác nhận 60 giây.</span>
+              </div>
+            )}
+
+            {/* PIN change */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <span className="font-semibold text-slate-200">Đổi mã PIN bảo mật máy</span>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  maxLength={8}
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value)}
+                  placeholder="Nhập PIN mới (4–8 số)"
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-100 font-mono text-center"
+                />
+                <button
+                  onClick={handleSetPin}
+                  disabled={!newPin}
+                  className="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold"
+                >
+                  Lưu PIN
+                </button>
+              </div>
+            </div>
+
+            {/* Critical actions */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={handleFactoryReset}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-orange-950/40 border border-slate-800 hover:border-orange-800/60 text-orange-400 font-semibold transition-all"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Về mặc định</span>
+              </button>
+
+              <button
+                onClick={handleReboot}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-800/60 text-rose-400 font-semibold transition-all"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Khởi động lại</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
