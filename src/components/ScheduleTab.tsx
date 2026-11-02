@@ -38,6 +38,10 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [winS, setWinS] = useState<number>(23);
   const [winE, setWinE] = useState<number>(5);
   const [manMin, setManMin] = useState<number>(30);
+  const [dDays, setDDays] = useState<number>(3);
+  const [dHour, setDHour] = useState<number>(12);
+  const [dMin, setDMin] = useState<number>(0);
+  const [dSec, setDSec] = useState<number>(60);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -50,6 +54,10 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setWinS(config.win_s);
     setWinE(config.win_e);
     setManMin(config.man_min);
+    setDDays(config.d_days);
+    setDHour(config.d_hour);
+    setDMin(config.d_min);
+    setDSec(config.d_sec);
   }, [
     config?.fmode,
     config?.fmin,
@@ -58,6 +66,10 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.win_s,
     config?.win_e,
     config?.man_min,
+    config?.d_days,
+    config?.d_hour,
+    config?.d_min,
+    config?.d_sec,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -71,6 +83,12 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     if (winS !== config.win_s) diff.win_s = winS;
     if (winE !== config.win_e) diff.win_e = winE;
     if (manMin !== config.man_min) diff.man_min = manMin;
+    if (config.drain === 1) {
+      if (dDays !== config.d_days) diff.d_days = dDays;
+      if (dHour !== config.d_hour) diff.d_hour = dHour;
+      if (dMin !== config.d_min) diff.d_min = dMin;
+      if (dSec !== config.d_sec) diff.d_sec = dSec;
+    }
     return diff;
   };
 
@@ -451,6 +469,98 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
           <span>120 ph</span>
           <span>240 ph</span>
         </div>
+      </div>
+
+      {/* 5. Water change schedule (drain - optional) */}
+      <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+            5. Lịch thay nước / xả (d_days, d_hour, d_min, d_sec)
+          </label>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Đóng van lọc, mở van xả rồi bơm nước ra ngoài. Xả được ưu tiên hơn lọc; xả xong máy lọc tiếp theo lịch.
+          </p>
+        </div>
+        {config?.drain !== 1 ? (
+          <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-start gap-2">
+            <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+            <span>Máy chưa bật van xả. Vào tab Kỹ thuật → bật &quot;Có lắp van xả (thay nước)&quot; rồi quay lại đây.</span>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Mỗi (ngày)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={dDays}
+                  onChange={(e) => setDDays(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Giờ</label>
+                <select
+                  value={dHour}
+                  onChange={(e) => setDHour(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 font-mono text-slate-100"
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {h.toString().padStart(2, '0')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Phút</label>
+                <select
+                  value={dMin}
+                  onChange={(e) => setDMin(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 font-mono text-slate-100"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i * 5)
+                    .concat(dMin % 5 ? [dMin] : [])
+                    .sort((a, b) => a - b)
+                    .map((m) => (
+                      <option key={m} value={m}>
+                        {m.toString().padStart(2, '0')}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">Thời gian xả mỗi lần</span>
+                <span className="text-xl font-black font-mono text-orange-400">
+                  {Math.floor(dSec / 60).toString().padStart(2, '0')}:{(dSec % 60).toString().padStart(2, '0')}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={1800}
+                step={5}
+                value={dSec}
+                onChange={(e) => setDSec(Number(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
+              />
+              <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                <span>5 s</span>
+                <span>5 ph</span>
+                <span>15 ph</span>
+                <span>30 ph</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Ngày xả tính theo số ngày liên tục (giống máy), nên lần đầu có thể không phải hôm nay. Máy chưa có giờ thì
+              không tự xả; đến giờ mà máy đang tắt / lỗi thì bỏ lượt đó.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Floating Save Bar on changes */}
