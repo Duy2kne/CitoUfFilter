@@ -139,6 +139,19 @@ export const TechTab: React.FC<TechTabProps> = ({
     onSendCommand('ACS_CAL', { ch: acsChannel, ma: acsClampMa });
   };
 
+  // Dat diem 0 TDS: dau do kho ma van doc ra so -> lay so do lam moc 0 ppm
+  const handleTdsZero = () => {
+    onRequestConfirm(
+      'Đặt điểm 0 cho cảm biến TDS?',
+      `Máy sẽ coi số đang đọc (${status ? status.tds_live : '—'} ppm) là 0 ppm. Chỉ làm khi đầu dò đang cắm vào máy, đã nhấc khỏi nước và lau khô.`,
+      () => onSendCommand('TDS_ZERO')
+    );
+  };
+
+  const handleTdsZeroClear = () => {
+    onRequestConfirm('Bỏ điểm 0 TDS?', 'Máy sẽ đọc TDS như lúc chưa đặt điểm 0.', () => onSendCommand('SET', { tds_z: 0 }));
+  };
+
   // TDS Calibration
   const handleTdsCalibrate = () => {
     onSendCommand('TDS_CAL', { ppm: tdsCalPpm });
@@ -584,7 +597,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             <Gauge className="w-5 h-5 text-purple-400" />
             <div>
               <div className="text-sm font-bold text-slate-100">3. Hiệu chuẩn cảm biến TDS</div>
-              <div className="text-xs text-slate-400">Dung dịch chuẩn hoặc bút đo tham chiếu</div>
+              <div className="text-xs text-slate-400">Đặt điểm 0, dung dịch chuẩn hoặc bút đo tham chiếu</div>
             </div>
           </div>
           {openSection === 'tds_cal' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
@@ -606,6 +619,44 @@ export const TechTab: React.FC<TechTabProps> = ({
                   {config?.tds_k ? config.tds_k.toFixed(3) : '1.000'}
                 </div>
               </div>
+            </div>
+
+            {/* Diem 0: dau do kho ma van doc ra so */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-bold text-slate-200">Bước 0 – Đặt điểm 0 (đầu dò khô)</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                    Nhấc đầu dò khỏi nước, lau khô. Nếu &quot;TDS tức thời&quot; không về 0 thì bấm nút này: máy lấy số đang đọc
+                    làm mốc 0 ppm. Không cần bơm chạy.
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[10px] text-slate-500">Điểm 0 đang lưu</div>
+                  <div className="font-mono font-bold text-cyan-300">{(config?.tds_z ?? 0).toFixed(3)} V</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleTdsZero}
+                  disabled={!status}
+                  className="px-4 py-2 rounded-xl font-semibold bg-cyan-700 hover:bg-cyan-600 text-white disabled:opacity-40 transition-all active:scale-95"
+                >
+                  Đặt số đang đọc ({status ? status.tds_live : '—'} ppm) về 0
+                </button>
+                {(config?.tds_z ?? 0) > 0 && (
+                  <button
+                    onClick={handleTdsZeroClear}
+                    className="px-3 py-2 rounded-xl font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all"
+                  >
+                    Bỏ điểm 0
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Chỉ đặt khi đầu dò đang cắm vào máy và KHÔ. Máy từ chối nếu số đọc quá cao (trên khoảng 120 ppm) để tránh đặt
+                nhầm lúc đầu dò còn trong nước. Đặt điểm 0 xong mới làm 3 bước hiệu chuẩn bên dưới.
+              </p>
             </div>
 
             {/* 3 Step Guide */}
