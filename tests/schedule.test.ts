@@ -18,8 +18,6 @@ describe('Schedule Calculator & Midnight Window Logic', () => {
       fmin: 30,
       day: 1, // Ngày chẵn (2, 4, 6...)
       wday: 127,
-      win_s: 23,
-      win_e: 5,
     };
 
     // Day 2 (Even day) at 23:15
@@ -39,43 +37,32 @@ describe('Schedule Calculator & Midnight Window Logic', () => {
     expect(isFilterActiveAt(day4At0115, config)).toBe(false);
   });
 
-  it('Custom overnight window (22:00 - 02:00) correctly spans midnight', () => {
-    const config = {
-      fmode: 5, // Tùy chỉnh
-      fmin: 30,
-      day: 0, // Mỗi ngày
-      wday: 127,
-      win_s: 22,
-      win_e: 2,
-    };
+  it('Daytime mode has a lunch break and Evening mode spans midnight (same table as firmware settings_mode_in)', () => {
+    // Ban ngay: 08-12 + 14-17
+    expect(getHourWindowInfo(7, 1).inWindow).toBe(false);
+    expect(getHourWindowInfo(8, 1).inWindow).toBe(true);
+    expect(getHourWindowInfo(11, 1).inWindow).toBe(true);
+    expect(getHourWindowInfo(12, 1).inWindow).toBe(false);
+    expect(getHourWindowInfo(13, 1).inWindow).toBe(false);
+    expect(getHourWindowInfo(14, 1).inWindow).toBe(true);
+    expect(getHourWindowInfo(16, 1).inWindow).toBe(true);
+    expect(getHourWindowInfo(17, 1).inWindow).toBe(false);
 
-    // Hour 21: before window
-    const info21 = getHourWindowInfo(21, config.fmode, config.win_s, config.win_e);
-    expect(info21.inWindow).toBe(false);
+    // Buoi toi: 19-05, phan sau 0h thuoc ngay hom truoc
+    expect(getHourWindowInfo(18, 2).inWindow).toBe(false);
+    const info19 = getHourWindowInfo(19, 2);
+    expect(info19.inWindow).toBe(true);
+    expect(info19.belongsToPreviousDay).toBe(false);
+    const info4 = getHourWindowInfo(4, 2);
+    expect(info4.inWindow).toBe(true);
+    expect(info4.belongsToPreviousDay).toBe(true);
+    expect(getHourWindowInfo(5, 2).inWindow).toBe(false);
 
-    // Hour 22: start of window, belongs to current day
-    const info22 = getHourWindowInfo(22, config.fmode, config.win_s, config.win_e);
-    expect(info22.inWindow).toBe(true);
-    expect(info22.belongsToPreviousDay).toBe(false);
-
-    // Hour 23: inside window, belongs to current day
-    const info23 = getHourWindowInfo(23, config.fmode, config.win_s, config.win_e);
-    expect(info23.inWindow).toBe(true);
-    expect(info23.belongsToPreviousDay).toBe(false);
-
-    // Hour 0: post-midnight inside window, belongs to previous day
-    const info0 = getHourWindowInfo(0, config.fmode, config.win_s, config.win_e);
-    expect(info0.inWindow).toBe(true);
-    expect(info0.belongsToPreviousDay).toBe(true);
-
-    // Hour 1: post-midnight inside window, belongs to previous day
-    const info1 = getHourWindowInfo(1, config.fmode, config.win_s, config.win_e);
-    expect(info1.inWindow).toBe(true);
-    expect(info1.belongsToPreviousDay).toBe(true);
-
-    // Hour 2: window ends at 02:00, so hour 2 is outside window
-    const info2 = getHourWindowInfo(2, config.fmode, config.win_s, config.win_e);
-    expect(info2.inWindow).toBe(false);
+    // Thu cong khong bao gio tu chay; che do 5 (Tuy chinh) da bo khoi firmware 1.1.0
+    expect(getHourWindowInfo(10, 0).inWindow).toBe(false);
+    expect(getHourWindowInfo(10, 5).inWindow).toBe(false);
+    // Ca ngay
+    expect(getHourWindowInfo(3, 4).inWindow).toBe(true);
   });
 
   it('Weekday filter (day = 4) correctly filters by day-of-week bitmask', () => {
@@ -105,12 +92,10 @@ describe('Schedule Calculator & Midnight Window Logic', () => {
 
   it('generates 24-hour preview schedule with correct slot flags', () => {
     const config = {
-      fmode: 1, // Ban ngày: 08:00 - 17:00
+      fmode: 1, // Ban ngày: 08:00 - 12:00 + 14:00 - 17:00
       fmin: 30,
       day: 0, // Mỗi ngày
       wday: 127,
-      win_s: 8,
-      win_e: 17,
     };
 
     const slots = generate24HourSchedule(new Date(), config);
@@ -119,6 +104,9 @@ describe('Schedule Calculator & Midnight Window Logic', () => {
     expect(slots[7].isActive).toBe(false);
     expect(slots[8].isActive).toBe(true);
     expect(slots[8].activeMinutes).toBe(30);
+    expect(slots[12].isActive).toBe(false); // nghi trua
+    expect(slots[13].isActive).toBe(false);
+    expect(slots[14].isActive).toBe(true);
     expect(slots[16].isActive).toBe(true);
     expect(slots[17].isActive).toBe(false);
   });
