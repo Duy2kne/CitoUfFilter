@@ -299,8 +299,9 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       // TDS Calibrated
       category = 'config';
       icon = 'gauge';
-      title = `Hiệu chuẩn TDS (${val} ppm)`;
-      detail = 'Đã cập nhật hệ số tds_k theo dung dịch chuẩn';
+      // val 0 = dat diem 0 (lenh TDS_ZERO, firmware 1.1.1)
+      title = val === 0 ? 'Đặt điểm 0 TDS' : `Hiệu chuẩn TDS (${val} ppm)`;
+      detail = val === 0 ? 'Lấy số đọc lúc đầu dò khô làm mốc 0 ppm' : 'Đã cập nhật hệ số tds_k theo dung dịch chuẩn';
       badgeColor = 'text-violet-300 bg-violet-950/60 border-violet-800/40';
       break;
     }
