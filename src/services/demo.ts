@@ -20,7 +20,7 @@ export type PacketCallback = (pkt: UfIncomingPacket) => void;
 /**
  * In-browser virtual CITO UF FILTER machine.
  * Follows real schedule matching local PC clock, fluctuates realistic TDS (120-180 ppm),
- * handles commands and sends st / cf / ack / hi packets identically to real firmware 1.0.0.
+ * handles commands and sends st / cf / ack / hi packets like real firmware 1.1.0.
  */
 export class UfDemoDevice {
   private status: UfStatus;
@@ -38,6 +38,7 @@ export class UfDemoDevice {
   private isDraining: boolean = false;
   private drainRemainingSeconds: number = 0;
   private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
+  private drainCooldownSeconds: number = 0;   // Xa xong phai nghi 1 tieng moi duoc xa lai (DRAIN_COOLDOWN_S)
   private runElapsedSeconds: number = 0;
   private cleanLearnSeconds: number = 0;      // Sau FILTER_RESET: bom chay du lau thi hoc lai loi sach
 
@@ -73,7 +74,43 @@ export class UfDemoDevice {
     }
   }
 
+  // Giong settings_validate() cua firmware 1.1.0 (cac muc app chinh duoc)
+  private validateConfig() {
+    const c = this.config;
+    const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
+    if (!(c.fmode >= 0 && c.fmode <= 4)) c.fmode = 3;
+    c.fmin = clamp(Math.round(c.fmin), 5, 60);
+    c.day = clamp(Math.round(c.day), 0, 4);
+    c.wday = (c.wday & 0x7f) || 0x7f;
+    c.man_min = clamp(Math.round(c.man_min), 5, 240);
+    c.p_block = clamp(c.p_block, 100, 5000);
+    c.p_min = clamp(c.p_min, 0, c.p_block - 50);
+    if (c.p_dirty) c.p_dirty = clamp(c.p_dirty, c.p_min + 10, c.p_block - 10);
+    c.v_max = clamp(c.v_max, 100, 5000);
+    c.v_min = clamp(c.v_min, 0, c.v_max - 50);
+    c.d_days = clamp(Math.round(c.d_days), 1, 30);
+    c.d_hour = clamp(Math.round(c.d_hour), 0, 23);
+    c.d_min = clamp(Math.round(c.d_min), 0, 59);
+    c.d_sec = clamp(Math.round(c.d_sec), 5, 1800);
+    c.d_vmax = clamp(c.d_vmax, 100, 5000);
+    c.d_vmin = clamp(c.d_vmin, 0, c.d_vmax - 50);
+    c.d_mode = clamp(Math.round(c.d_mode), 0, 1);
+    c.tds_hi = clamp(Math.round(c.tds_hi), 30, 2000);
+    c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
+    c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
+  }
+
+  // Cong suat uoc tinh = dien ap danh dinh x tong dong (giong firmware)
+  private updatePower() {
+    const ma = this.status.p[2] + this.status.v[3] + this.status.d[3];
+    this.status.wt = Number(((this.status.vn * ma) / 1000).toFixed(1));
+  }
+
   private emit(pkt: UfIncomingPacket) {
+    if (pkt.t === 'st') {
+      this.updatePower();
+      (pkt as { wt: number }).wt = this.status.wt;
+    }
     if (this.onPacket) {
       this.onPacket(pkt);
     }
@@ -90,6 +127,8 @@ export class UfDemoDevice {
     const localNow = Math.floor(now.getTime() / 1000 - now.getTimezoneOffset() * 60);
     this.status.d = [this.config.drain, 0, 1, 0];
     this.status.dleft = 0;
+    if (this.drainCooldownSeconds > 0) this.drainCooldownSeconds--;
+    this.status.dcool = this.drainCooldownSeconds;
     this.updateDrainNext(localNow);
     this.updatePumpRun();
 
@@ -108,12 +147,17 @@ export class UfDemoDevice {
     }
 
     // Thay nuoc theo lich (giong firmware: ngay tu 1970 chia het d_days, trong 2 phut sau gio hen)
-    if (this.config.drain === 1 && !this.isDraining && this.status.tk === 1) {
+    if (this.config.drain === 1 && !this.isDraining && this.config.d_mode === 1) {
+      // Theo TDS: vuot muc tren (va het thoi gian nghi) thi thay nuoc
+      if (this.drainCooldownSeconds === 0 && this.status.tds !== null && this.status.tds > this.config.tds_hi) {
+        this.startDrain(0, 2);
+      }
+    } else if (this.config.drain === 1 && !this.isDraining && this.status.tk === 1) {
       const day = Math.floor(localNow / 86400);
       const at = day * 86400 + this.config.d_hour * 3600 + this.config.d_min * 60;
       if (day % Math.max(1, this.config.d_days) === 0 && day !== this.drainDoneDay && localNow >= at && localNow < at + 120) {
         this.drainDoneDay = day;
-        this.startDrain(0);
+        if (this.drainCooldownSeconds === 0) this.startDrain(0); // Con nghi -> bo luot nay (giong firmware)
       }
     }
 
@@ -122,14 +166,18 @@ export class UfDemoDevice {
       this.drainRemainingSeconds--;
       this.status.st = 6;
       this.status.ph = 'DRAINING';
-      this.status.p = [1, 1, 330];
+      this.status.p = [1, 1, 290];
       this.status.v = [this.config.valve, 0, 1, 0];
       this.status.d = [this.config.drain, 1, 1, 180];
-      this.status.wt = 16.1;
       this.status.dleft = Math.max(0, this.drainRemainingSeconds);
       this.status.run = { tot: this.config.d_sec, left: this.status.dleft };
       if (this.drainRemainingSeconds <= 0) {
         this.isDraining = false;
+        this.drainCooldownSeconds = 3600;
+        this.status.dcool = 3600;
+        // Thay nuoc xong: TDS giam (de che do theo TDS dung lai khi dat muc duoi)
+        if (this.status.tds !== null) this.status.tds = Math.max(90, Math.round(this.status.tds * 0.8));
+        this.status.tds_age = 0;
         this.addHistoryEvent(4, 3, this.config.d_sec);   // Luot bom (thay nuoc) xong
         this.addHistoryEvent(15, 5, 0);                  // Xa du thoi gian
       } else {
@@ -138,15 +186,14 @@ export class UfDemoDevice {
       }
     }
 
-    // Handle Measuring TDS cycle (25s)
+    // Handle Measuring TDS cycle (bom chay 10s, giong SENS_RUN_MS)
     if (this.isMeasuring) {
       this.measureRemainingSeconds--;
       this.status.st = 4;
       this.status.ph = 'MEASURING';
-      this.status.p = [1, 1, 385];
-      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 420 : 0];
-      this.status.wt = 18.5;
-      this.status.run = { tot: 25, left: Math.max(0, this.measureRemainingSeconds) };
+      this.status.p = [1, 1, 270];
+      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 310 : 0];
+      this.status.run = { tot: 10, left: Math.max(0, this.measureRemainingSeconds) };
 
       if (this.measureRemainingSeconds <= 0) {
         this.isMeasuring = false;
@@ -155,7 +202,7 @@ export class UfDemoDevice {
         this.status.tds = newTds;
         this.status.tds_age = 0;
         this.status.tds_live = newTds;
-        this.addHistoryEvent(4, 2, 25);
+        this.addHistoryEvent(4, 2, 10);
       } else {
         this.emit({ t: 'st', ...this.status });
         return;
@@ -167,9 +214,8 @@ export class UfDemoDevice {
       this.runRemainingSeconds--;
       this.status.st = 3;
       this.status.ph = 'MANUAL';
-      this.status.p = [1, 1, 395];
-      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 425 : 0];
-      this.status.wt = 19.2;
+      this.status.p = [1, 1, 272 + Math.round(Math.sin(this.uptimeSeconds / 4) * 6)];
+      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 310 : 0];
       this.status.run = { tot: this.runTotalSeconds, left: Math.max(0, this.runRemainingSeconds) };
 
       if (this.status.tds_age !== null) {
@@ -193,9 +239,8 @@ export class UfDemoDevice {
     if (isScheduledNow) {
       this.status.st = 2;
       this.status.ph = 'FILTERING';
-      this.status.p = [1, 1, 380];
-      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 410 : 0];
-      this.status.wt = 18.4;
+      this.status.p = [1, 1, 268 + Math.round(Math.sin(this.uptimeSeconds / 4) * 6)];
+      this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 308 : 0];
 
       // Calculate minutes and seconds left in this scheduled hour
       const totalHourSecs = this.config.fmin * 60;
@@ -227,16 +272,16 @@ export class UfDemoDevice {
     this.emit({ t: 'st', ...this.status });
   }
 
-  private startDrain(src: number) {
+  private startDrain(src: number, val: number = 1) {
     this.isDraining = true;
     this.drainRemainingSeconds = this.config.d_sec;
     this.isMeasuring = false;
-    this.addHistoryEvent(15, src, 1);
+    this.addHistoryEvent(15, src, val);   // val 1 = hen gio / tay, 2 = theo TDS
   }
 
   // Gio lan thay nuoc ke (gio dia phuong, giay tu 1970), 0 = khong lap van xa / chua co gio
   private updateDrainNext(localNow: number) {
-    if (this.config.drain !== 1 || this.status.tk !== 1) {
+    if (this.config.drain !== 1 || this.status.tk !== 1 || this.config.d_mode !== 0) {
       this.status.dnext_t = 0;
       return;
     }
@@ -413,18 +458,22 @@ export class UfDemoDevice {
           this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang tắt' });
           return;
         }
-        if (this.status.man === 1 || this.status.st === 2) {
-          this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang lọc, TDS đang tự cập nhật' });
+        if ((this.status.err & LOCKED_ERRORS_MASK) !== 0 || this.isDraining) {
+          this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang tắt / có lỗi / đang thay nước - chưa đo được' });
           return;
         }
-        if ((this.status.err & LOCKED_ERRORS_MASK) !== 0) {
-          this.emit({ t: 'ack', a: 'MEASURE', ok: false, msg: 'Máy đang có lỗi khóa an toàn' });
-          return;
+        if (this.status.man === 1 || this.status.st === 2) {
+          const liveTds = Math.floor(125 + Math.random() * 25);
+          this.status.tds = liveTds;
+          this.status.tds_age = 0;
+          this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: 'Đang lọc - số đo cập nhật khi nước chảy đủ 10 giây' });
+          this.emit({ t: 'st', ...this.status });
+          break;
         }
 
         this.isMeasuring = true;
-        this.measureRemainingSeconds = 25;
-        this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: 'Đang chạy bơm 25 giây để đo TDS' });
+        this.measureRemainingSeconds = 10;
+        this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: 'Đang chạy bơm 10 giây để đo TDS + nhiệt độ' });
         this.emit({ t: 'st', ...this.status });
         break;
       }
@@ -448,7 +497,16 @@ export class UfDemoDevice {
           this.emit({ t: 'ack', a: 'DRAIN', ok: false, msg: 'Máy đang tắt / có lỗi khóa' });
           return;
         }
-        this.startDrain(3);
+        if (this.drainCooldownSeconds > 0 && !this.isDraining) {
+          this.emit({
+            t: 'ack',
+            a: 'DRAIN',
+            ok: false,
+            msg: `Vừa thay nước - chờ thêm ${Math.ceil(this.drainCooldownSeconds / 60)} phút mới thay lại được`,
+          });
+          return;
+        }
+        if (!this.isDraining) this.startDrain(3);
         this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đang thay nước' });
         this.emit({ t: 'st', ...this.status });
         break;
@@ -472,20 +530,30 @@ export class UfDemoDevice {
 
       case 'SET': {
         const allowedKeys = Object.keys(this.config);
-        let changeCount = 0;
-        for (const [key, val] of Object.entries(params)) {
-          if (!allowedKeys.includes(key)) {
-            this.emit({ t: 'ack', a: 'SET', ok: false, msg: `Khóa lạ "${key}", từ chối cài đặt` });
+        const entries = Object.entries(params);
+        if (entries.length === 0) {
+          this.emit({ t: 'ack', a: 'SET', ok: false, msg: 'Không có giá trị nào' });
+          return;
+        }
+        for (const [key] of entries) {
+          // Giong firmware: 1 khoa la la tu choi CA lenh
+          if (!allowedKeys.includes(key) || ['fw', 'dev', 'ssid', 'rst', 'pend', 'ap'].includes(key)) {
+            this.emit({ t: 'ack', a: 'SET', ok: false, msg: 'Khóa cài đặt không hợp lệ' });
             return;
           }
         }
-        for (const [key, val] of Object.entries(params)) {
+        const oldMode = this.config.fmode;
+        for (const [key, val] of entries) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (this.config as any)[key] = val;
-          changeCount++;
+          (this.config as any)[key] = Number(val);
         }
-        this.addHistoryEvent(8, 3, changeCount);
-        this.emit({ t: 'ack', a: 'SET', ok: true, msg: 'Đã lưu cài đặt mới' });
+        this.validateConfig();
+        // Doi che do loc ma khong gui kem fmin -> phut / gio ve mac dinh cua che do (giong firmware)
+        if (this.config.fmode !== oldMode && !('fmin' in params)) {
+          this.config.fmin = ({ 1: 20, 2: 30, 3: 30, 4: 10 } as Record<number, number>)[this.config.fmode] ?? this.config.fmin;
+        }
+        this.addHistoryEvent(8, 3, entries.length);
+        this.emit({ t: 'ack', a: 'SET', ok: true, msg: 'Đã lưu' });
         this.emit({ t: 'cf', ...this.config });
         this.emit({ t: 'st', ...this.status });
         break;
