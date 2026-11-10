@@ -78,6 +78,7 @@ export interface UfConfig {
   v_max: number; // Valve over-current threshold (mA)
   tds_alarm: number; // TDS alarm threshold in ppm (0 = off)
   tds_k: number; // TDS calibration multiplier (0.1 - 10)
+  tds_z: number; // TDS zero point: pin voltage with a dry probe (V, 0 - 0.30). Firmware 1.1.1+, set by TDS_ZERO
   off_t: number; // Temperature offset (-10 to 10 °C)
   z_p: number; // Pump ACS712 zero voltage (V)
   z_v: number; // Valve ACS712 zero voltage (V)
@@ -466,6 +467,7 @@ export const INITIAL_CONFIG: UfConfig = {
   v_max: 1000,
   tds_alarm: 300,
   tds_k: 1.0,
+  tds_z: 0,
   off_t: 0.0,
   z_p: 1.65,
   z_v: 1.65,
