@@ -35,13 +35,14 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [fmin, setFmin] = useState<number>(30);
   const [day, setDay] = useState<number>(0);
   const [wday, setWday] = useState<number>(127);
-  const [winS, setWinS] = useState<number>(23);
-  const [winE, setWinE] = useState<number>(5);
   const [manMin, setManMin] = useState<number>(30);
   const [dDays, setDDays] = useState<number>(3);
   const [dHour, setDHour] = useState<number>(12);
   const [dMin, setDMin] = useState<number>(0);
   const [dSec, setDSec] = useState<number>(60);
+  const [dMode, setDMode] = useState<number>(0);
+  const [tdsHi, setTdsHi] = useState<number>(250);
+  const [tdsLo, setTdsLo] = useState<number>(150);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -51,25 +52,27 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setFmin(config.fmin);
     setDay(config.day);
     setWday(config.wday);
-    setWinS(config.win_s);
-    setWinE(config.win_e);
     setManMin(config.man_min);
     setDDays(config.d_days);
     setDHour(config.d_hour);
     setDMin(config.d_min);
     setDSec(config.d_sec);
+    setDMode(config.d_mode);
+    setTdsHi(config.tds_hi);
+    setTdsLo(config.tds_lo);
   }, [
     config?.fmode,
     config?.fmin,
     config?.day,
     config?.wday,
-    config?.win_s,
-    config?.win_e,
     config?.man_min,
     config?.d_days,
     config?.d_hour,
     config?.d_min,
     config?.d_sec,
+    config?.d_mode,
+    config?.tds_hi,
+    config?.tds_lo,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -80,23 +83,37 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     if (fmin !== config.fmin) diff.fmin = fmin;
     if (day !== config.day) diff.day = day;
     if (wday !== config.wday) diff.wday = wday;
-    if (winS !== config.win_s) diff.win_s = winS;
-    if (winE !== config.win_e) diff.win_e = winE;
     if (manMin !== config.man_min) diff.man_min = manMin;
     if (config.drain === 1) {
       if (dDays !== config.d_days) diff.d_days = dDays;
       if (dHour !== config.d_hour) diff.d_hour = dHour;
       if (dMin !== config.d_min) diff.d_min = dMin;
       if (dSec !== config.d_sec) diff.d_sec = dSec;
+      if (dMode !== config.d_mode) diff.d_mode = dMode;
+      // Muc tren + muc duoi phu thuoc nhau (may ep duoi < tren) -> doi 1 cai thi gui ca 2
+      if (tdsHi !== config.tds_hi || tdsLo !== config.tds_lo) {
+        diff.tds_hi = tdsHi;
+        diff.tds_lo = tdsLo;
+      }
     }
     return diff;
   };
 
   const modifiedKeys = getModifiedKeys();
   const hasChanges = Object.keys(modifiedKeys).length > 0;
+  const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi;
+
+  // Doi che do loc: phut / gio ve mac dinh cua che do do (giong may), nguoi dung chinh lai duoc
+  const MODE_DEFAULT_FMIN: Record<number, number> = { 1: 20, 2: 30, 3: 30, 4: 10 };
+  const handlePickMode = (id: number) => {
+    if (id === fmode) return;
+    setFmode(id);
+    if (MODE_DEFAULT_FMIN[id]) setFmin(config && id === config.fmode ? config.fmin : MODE_DEFAULT_FMIN[id]);
+  };
 
   const handleSave = async () => {
     if (!hasChanges) return;
+    if (config?.drain === 1 && dMode === 1 && !tdsLevelsOk) return;
     try {
       setIsSaving(true);
       await onSendCommand('SET', modifiedKeys);
@@ -123,8 +140,6 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     fmin,
     day,
     wday,
-    win_s: winS,
-    win_e: winE,
   });
 
   const currentHour = now.getHours();
@@ -143,8 +158,6 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         return <Moon className="w-5 h-5 text-cyan-400" />;
       case 'repeat':
         return <Repeat className="w-5 h-5 text-emerald-400" />;
-      case 'clock':
-        return <Clock className="w-5 h-5 text-blue-400" />;
       default:
         return <Calendar className="w-5 h-5" />;
     }
@@ -247,7 +260,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
               <button
                 key={mode.id}
                 type="button"
-                onClick={() => setFmode(mode.id)}
+                onClick={() => handlePickMode(mode.id)}
                 className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
                   isSelected
                     ? 'bg-slate-900 border-cyan-500 shadow-lg shadow-cyan-950/40 text-slate-100'
@@ -273,7 +286,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 </div>
 
                 <div className="text-xs font-semibold text-cyan-400 font-mono mb-1">
-                  {mode.id === 5 ? `${winS}:00 – ${winE}:00` : mode.hours}
+                  {mode.hours}
                 </div>
                 <div className="text-[11px] text-slate-400 leading-normal">{mode.desc}</div>
               </button>
@@ -282,58 +295,12 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         </div>
       </div>
 
-      {/* Custom Window Hours (shown only when fmode === 5) */}
-      {fmode === 5 && (
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-cyan-800/40 space-y-3 animate-in fade-in">
-          <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
-            <Clock className="w-4 h-4 text-cyan-400" />
-            <span>Cài đặt giờ khung Tùy chỉnh</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Giờ bắt đầu (win_s):</label>
-              <select
-                value={winS}
-                onChange={(e) => setWinS(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 font-mono outline-none"
-              >
-                {Array.from({ length: 24 }).map((_, h) => (
-                  <option key={h} value={h}>
-                    {h.toString().padStart(2, '0')}:00
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Giờ kết thúc (win_e):</label>
-              <select
-                value={winE}
-                onChange={(e) => setWinE(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 font-mono outline-none"
-              >
-                {Array.from({ length: 24 }).map((_, h) => (
-                  <option key={h} value={h}>
-                    {h.toString().padStart(2, '0')}:00
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            * Lưu ý: Nếu giờ bắt đầu = giờ kết thúc, máy sẽ lọc cả ngày (24/24). Nếu giờ bắt đầu lớn hơn giờ kết thúc (ví dụ 22:00 – 05:00), máy sẽ lọc qua nửa đêm.
-          </p>
-        </div>
-      )}
-
       {/* 2. Minutes Per Hour Slider (fmin) */}
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              2. Thời gian lọc mỗi giờ (fmin)
+              2. Thời gian lọc mỗi giờ
             </label>
             <p className="text-xs text-slate-400 mt-0.5">
               Trong khung giờ đã chọn, máy bắt đầu lọc từ đầu giờ (HH:00)
@@ -383,7 +350,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div>
           <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            3. Ngày trong tháng / trong tuần (day)
+            3. Ngày được phép lọc
           </label>
           <p className="text-xs text-slate-400 mt-0.5">Quy định những ngày máy được phép chạy</p>
         </div>
@@ -413,7 +380,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         {day === 4 && (
           <div className="pt-2 border-t border-slate-800 space-y-2 animate-in fade-in">
             <span className="text-xs font-semibold text-slate-300">
-              Chọn các ngày trong tuần (wday):
+              Chọn các ngày trong tuần:
             </span>
             <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
               {WEEKDAYS.map((wd) => {
@@ -443,7 +410,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         <div className="flex items-center justify-between">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              4. Thời lượng khi bấm &quot;Lọc ngay&quot; (man_min)
+              4. Thời lượng khi bấm &quot;Lọc ngay&quot;
             </label>
             <p className="text-xs text-slate-400 mt-0.5">Số phút bơm chạy cho mỗi lượt lọc thủ công</p>
           </div>
@@ -475,10 +442,11 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div>
           <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            5. Lịch thay nước / xả (d_days, d_hour, d_min, d_sec)
+            5. Thay nước tự động (xả)
           </label>
           <p className="text-xs text-slate-400 mt-0.5">
             Đóng van lọc, mở van xả rồi bơm nước ra ngoài. Xả được ưu tiên hơn lọc; xả xong máy lọc tiếp theo lịch.
+            Mỗi lần xả xong máy nghỉ 1 tiếng mới xả lại.
           </p>
         </div>
         {config?.drain !== 1 ? (
@@ -488,6 +456,67 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
           </div>
         ) : (
           <>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 0, name: 'Hẹn giờ', desc: 'Cứ mấy ngày xả một lần vào giờ cố định' },
+                { id: 1, name: 'Theo TDS', desc: 'Nước bẩn (TDS cao) thì tự xả' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setDMode(opt.id)}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    dMode === opt.id
+                      ? 'bg-orange-950/50 border-orange-500 text-slate-100'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{opt.name}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+
+            {dMode === 1 && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Xả khi TDS trên (ppm)</label>
+                    <input
+                      type="number"
+                      min={30}
+                      max={2000}
+                      step={10}
+                      value={tdsHi}
+                      onChange={(e) => setTdsHi(Math.round(Number(e.target.value) || 0))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Xả tiếp tới khi TDS ≤ (ppm)</label>
+                    <input
+                      type="number"
+                      min={20}
+                      max={1990}
+                      step={10}
+                      value={tdsLo}
+                      onChange={(e) => setTdsLo(Math.round(Number(e.target.value) || 0))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+                    />
+                  </div>
+                </div>
+                {!tdsLevelsOk && (
+                  <p className="text-[11px] text-rose-300">
+                    Mức dưới phải từ 20 ppm, mức trên tối đa 2000 ppm và mức dưới thấp hơn mức trên ít nhất 10 ppm.
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-500">
+                  Máy đo TDS sau mỗi lần xả: còn cao hơn mức dưới thì xả tiếp (cách nhau 1 tiếng), đạt mức dưới thì ngừng.
+                </p>
+              </div>
+            )}
+
+            {dMode === 0 && (
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Mỗi (ngày)</label>
@@ -532,6 +561,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 </select>
               </div>
             </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-300">Thời gian xả mỗi lần</span>
@@ -555,10 +585,12 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 <span>30 ph</span>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500">
-              Ngày xả tính theo số ngày liên tục (giống máy), nên lần đầu có thể không phải hôm nay. Máy chưa có giờ thì
-              không tự xả; đến giờ mà máy đang tắt / lỗi thì bỏ lượt đó.
-            </p>
+            {dMode === 0 && (
+              <p className="text-[11px] text-slate-500">
+                Ngày xả tính theo số ngày liên tục (giống máy), nên lần đầu có thể không phải hôm nay. Máy chưa có giờ thì
+                không tự xả; đến giờ mà máy đang tắt / lỗi / vừa xả chưa đủ 1 tiếng thì bỏ lượt đó.
+              </p>
+            )}
           </>
         )}
       </div>
