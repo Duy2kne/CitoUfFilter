@@ -130,6 +130,7 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         v_max: Number(cfPkt.v_max ?? 1000),
         tds_alarm: Number(cfPkt.tds_alarm ?? 0),
         tds_k: Number(cfPkt.tds_k ?? 1.0),
+        tds_z: Number(cfPkt.tds_z ?? 0),
         off_t: Number(cfPkt.off_t ?? 0),
         z_p: Number(cfPkt.z_p ?? 1.65),
         z_v: Number(cfPkt.z_v ?? 1.65),
