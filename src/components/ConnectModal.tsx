@@ -54,7 +54,7 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-100">Kết nối máy lọc CITO UF</h2>
-            <p className="text-xs text-slate-400">Bluetooth Low Energy · Firmware 1.0.0</p>
+            <p className="text-xs text-slate-400">Bluetooth Low Energy · Firmware 1.1.0</p>
           </div>
         </div>
 
