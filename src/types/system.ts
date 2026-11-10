@@ -23,7 +23,7 @@ export interface UfStatus {
   vn: number; // Nominal voltage (V)
   kwh: number; // 30-day cumulative energy (kWh, 3 decimals)
   pw: 0 | 1; // 1 = power on, 0 = power off
-  fm: number; // Filter mode (0-5)
+  fm: number; // Filter mode (0-4)
   st: number; // State: 0 OFF, 1 STANDBY, 2 FILTERING, 3 MANUAL, 4 MEASURING, 5 FAULT, 6 DRAINING (water change)
   ph: string; // Machine display text: OFF, STANDBY, FILTERING, MANUAL, MEASURING, DRAINING, FAULT, OTA
   run: {
@@ -37,7 +37,8 @@ export interface UfStatus {
   v: [number, number, number, number]; // Valve: [installed/enabled (0/1), on (0/1), has_current_sensor (0/1), current_mA]
   d: [number, number, number, number]; // Drain valve (water change): [installed, open, has_current_sensor, current_mA]
   dleft: number; // Draining: seconds left (0 = not draining)
-  dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock)
+  dcool: number; // Just drained: seconds left before another water change is allowed (0 = allowed)
+  dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock / TDS mode)
   fcl: number; // Filter cleanliness 0-100 % from pump current (-1 = unknown)
   fcl_ma: number; // Learned pump current with a clean filter (mA, 0 = not learned yet)
   rdur: number; // Pump running: seconds of this run; idle: length of the last run
@@ -62,15 +63,14 @@ export interface UfConfig {
   rst: string; // Reset reason (POWERON, SW, PANIC, WDT, BROWNOUT, EXT, ...)
   pend: 0 | 1; // 1 = pending OTA confirmation (60s countdown)
   ap: string; // AP WiFi name for emergency firmware flash
-  fmode: number; // 0: Manual, 1: Daytime, 2: Evening, 3: Night (default), 4: 24/24, 5: Custom
+  fmode: number; // 0: Manual, 1: Daytime 8-12 + 14-17, 2: Evening 19-5, 3: Night 23-5 (default), 4: 24/24
   fmin: number; // Filter duration each hour (5-60 min)
   day: number; // 0: Every day, 1: Even days, 2: Odd days, 3: Every 3 days, 4: By weekday
   wday: number; // Weekday bitmask (bit0=Sun, bit1=Mon ... bit6=Sat)
-  win_s: number; // Custom window start hour (0-23)
-  win_e: number; // Custom window end hour (0-23)
   man_min: number; // Manual filter run duration in minutes (5-240)
   valve: 0 | 1; // 1 = valve installed, 0 = no valve
-  tds_auto: 0 | 1; // 1 = auto run 25s after 1h idle to measure TDS
+  sens_rt: 0 | 1; // 0 = TDS / temperature sampled every 30 min while water flows, 1 = continuous
+  tds_auto: 0 | 1; // 30-min mode: machine idle when a sample is due -> run the pump 10 s to measure
   p_min: number; // Pump under-current alarm threshold (mA)
   p_dirty: number; // Pump dirty filter warning threshold (mA, 0 = off)
   p_block: number; // Pump locked rotor/over-current cutoff threshold (mA)
@@ -85,8 +85,11 @@ export interface UfConfig {
   k_v: number; // Valve ACS712 sensitivity (counts/A)
   bz_key: 0 | 1; // Key click buzzer
   bz_alarm: 0 | 1; // Fault alarm buzzer
-  // Water change (drain) - optional, firmware 1.0.0 settings v2. Absent on older firmware -> treated as not installed
+  // Water change (drain) - optional. Absent on older firmware -> treated as not installed
   drain: 0 | 1; // 1 = drain valve installed (GPIO26)
+  d_mode: number; // 0 = by timer (d_days / d_hour / d_min), 1 = by TDS (tds_hi / tds_lo)
+  tds_hi: number; // TDS mode: above this -> change water (ppm)
+  tds_lo: number; // TDS mode: keep changing until TDS <= this (ppm)
   d_days: number; // Change water every N days (1-30; epoch day % N == 0)
   d_hour: number; // Hour (0-23)
   d_min: number; // Minute (0-59)
@@ -139,7 +142,7 @@ export type UfIncomingPacket =
   | UfRealtimeEventPacket
   | UfWifiScanPacket;
 
-// Error definition table matching firmware 1.0.0
+// Error definition table matching firmware 1.1.0
 export interface ErrorDetail {
   code: string;
   bit: number;
@@ -251,11 +254,10 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
 // Filter mode names and descriptions
 export const FILTER_MODES: { id: number; name: string; hours: string; icon: string; desc: string }[] = [
   { id: 0, name: 'Thủ công', hours: 'Chỉ lọc khi bấm nút', icon: 'hand', desc: 'Không tự động theo giờ, chỉ chạy khi bấm "Lọc ngay"' },
-  { id: 1, name: 'Ban ngày', hours: '08:00 – 17:00', icon: 'sun', desc: 'Mỗi giờ lọc fmin phút trong khung giờ ban ngày' },
-  { id: 2, name: 'Buổi tối', hours: '19:00 – 05:00', icon: 'moon-night', desc: 'Lọc vào ban đêm và sáng sớm, qua nửa đêm' },
+  { id: 1, name: 'Ban ngày', hours: '08–12h · 14–17h', icon: 'sun', desc: 'Lọc ban ngày, nghỉ trưa 12:00 – 14:00' },
+  { id: 2, name: 'Buổi tối', hours: '19:00 – 05:00', icon: 'moon-night', desc: 'Lọc từ tối tới sáng sớm, qua nửa đêm' },
   { id: 3, name: 'Ban đêm', hours: '23:00 – 05:00', icon: 'moon', desc: 'Khung giờ yên tĩnh ban đêm (chế độ khuyên dùng mặc định)' },
-  { id: 4, name: 'Cả ngày', hours: '24/24', icon: 'repeat', desc: 'Mỗi giờ trong ngày đều lọc fmin phút' },
-  { id: 5, name: 'Tùy chỉnh', hours: 'Theo giờ cài đặt', icon: 'clock', desc: 'Tự chọn giờ bắt đầu và giờ kết thúc trong ngày' },
+  { id: 4, name: 'Cả ngày', hours: '24/24', icon: 'repeat', desc: 'Giờ nào trong ngày cũng lọc' },
 ];
 
 export const DAY_OPTIONS: { id: number; name: string; desc: string }[] = [
@@ -300,6 +302,43 @@ export function formatCurrent(mA: number): string {
     return `${Math.round(mA)} mA`;
   }
   return `${(mA / 1000).toFixed(2)} A`;
+}
+
+/** Danh gia dong dien 1 thiet bi so voi nguong bao ve cua firmware (de hien chu de hieu cho khach) */
+export type CurrentLevel = 'idle' | 'nosensor' | 'low' | 'ok' | 'high' | 'over' | 'stuck';
+
+export interface CurrentAssessment {
+  level: CurrentLevel;
+  label: string; // Chu ngan hien canh so mA
+  tone: 'slate' | 'emerald' | 'amber' | 'rose';
+}
+
+/**
+ * @param on        thiet bi dang duoc bat
+ * @param hasSensor firmware thay cam bien ACS712 cua kenh nay
+ * @param mA        dong do duoc
+ * @param min       duoi muc nay khi dang bat = khong chay / dut day (E1 / E5 / E11)
+ * @param max       tren muc nay = qua dong, may khoa (E2 / E6 / E12)
+ * @param warn      (chi bom) tren muc nay = loi loc ban (E3), 0 = tat canh bao
+ */
+export function assessCurrent(
+  on: boolean,
+  hasSensor: boolean,
+  mA: number,
+  min: number,
+  max: number,
+  warn = 0
+): CurrentAssessment {
+  if (!hasSensor) return { level: 'nosensor', label: 'Không thấy cảm biến dòng', tone: 'amber' };
+  if (!on) {
+    // Giong firmware (E4): da tat ma van an dong > 200 mA va > nguong min
+    if (mA > 200 && mA > min) return { level: 'stuck', label: 'Đã tắt mà vẫn có dòng', tone: 'amber' };
+    return { level: 'idle', label: 'Đang nghỉ', tone: 'slate' };
+  }
+  if (mA > max) return { level: 'over', label: 'Quá dòng', tone: 'rose' };
+  if (mA < min) return { level: 'low', label: 'Dòng quá thấp', tone: 'rose' };
+  if (warn > 0 && mA > warn) return { level: 'high', label: 'Dòng cao – lõi lọc bẩn', tone: 'amber' };
+  return { level: 'ok', label: 'Bình thường', tone: 'emerald' };
 }
 
 /**
@@ -376,8 +415,8 @@ export const INITIAL_STATUS: UfStatus = {
   tds_age: 180,
   tds_live: 138,
   w: 27.5,
-  wt: 14.2,
-  vn: 24,
+  wt: 0,
+  vn: 12,
   kwh: 0.128,
   pw: 1,
   fm: 3,
@@ -391,6 +430,7 @@ export const INITIAL_STATUS: UfStatus = {
   v: [0, 0, 0, 0],
   d: [0, 0, 0, 0],
   dleft: 0,
+  dcool: 0,
   dnext_t: 0,
   fcl: 92,
   fcl_ma: 260,
@@ -405,26 +445,25 @@ export const INITIAL_STATUS: UfStatus = {
 };
 
 export const INITIAL_CONFIG: UfConfig = {
-  fw: '1.0.0 (Nov 1 2026)',
+  fw: '1.1.0 (Nov 1 2026)',
   dev: 'A4CF1289',
   ssid: 'Nha-Toi-5G',
   rst: 'POWERON',
   pend: 0,
-  ap: 'CITO-UF-A4CF1289',
+  ap: 'CITO UF FILTER',
   fmode: 3,
   fmin: 30,
   day: 0,
   wday: 127,
-  win_s: 23,
-  win_e: 5,
   man_min: 30,
   valve: 0,
+  sens_rt: 0,
   tds_auto: 1,
-  p_min: 150,
-  p_dirty: 900,
-  p_block: 1500,
-  v_min: 80,
-  v_max: 800,
+  p_min: 40,
+  p_dirty: 350,
+  p_block: 700,
+  v_min: 50,
+  v_max: 1000,
   tds_alarm: 300,
   tds_k: 1.0,
   off_t: 0.0,
@@ -435,6 +474,9 @@ export const INITIAL_CONFIG: UfConfig = {
   bz_key: 1,
   bz_alarm: 1,
   drain: 1,
+  d_mode: 0,
+  tds_hi: 250,
+  tds_lo: 150,
   d_days: 3,
   d_hour: 12,
   d_min: 0,
