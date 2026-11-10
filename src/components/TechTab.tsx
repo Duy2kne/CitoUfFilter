@@ -194,10 +194,10 @@ export const TechTab: React.FC<TechTabProps> = ({
     );
   };
 
-  // Pump run timer for TDS Calibration (pump must have run continuously for >= 20s)
-  const isPumpRunningForTds = status?.p[0] === 1;
-  const elapsedRunSeconds = status ? status.run.tot - status.run.left : 0;
-  const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= 20;
+  // Hieu chuan TDS: may chi nhan khi bom LOC da chay lien tuc >= 10 giay (dang xa thi khong tinh)
+  const isPumpRunningForTds = status?.p[0] === 1 && status?.st !== 6;
+  const elapsedRunSeconds = status ? status.rdur : 0;
+  const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= 10;
 
   return (
     <div className="space-y-4 pb-12 animate-in fade-in duration-200">
@@ -300,7 +300,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             {/* Có van lọc */}
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
-                <div className="font-semibold text-slate-200">Có lắp van lọc điện từ (valve)</div>
+                <div className="font-semibold text-slate-200">Có lắp van lọc điện từ</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
                   Tắt nếu hồ chỉ dùng bơm trực tiếp. Bật: mở van trước rồi mới bật bơm.
                 </div>
@@ -316,9 +316,9 @@ export const TechTab: React.FC<TechTabProps> = ({
             {/* Có van xả (thay nước) */}
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
-                <div className="font-semibold text-slate-200">Có lắp van xả – thay nước (drain)</div>
+                <div className="font-semibold text-slate-200">Có lắp van xả – thay nước</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
-                  Van xả nối ngõ ra GPIO26, đo dòng GPIO36. Tắt: máy không xả và không báo lỗi van xả. Lịch xả ở tab Lịch lọc.
+                  Tắt: máy không xả và không báo lỗi van xả. Cách xả (hẹn giờ / theo TDS) chọn ở tab Lịch lọc.
                 </div>
               </div>
               <input
@@ -329,12 +329,33 @@ export const TechTab: React.FC<TechTabProps> = ({
               />
             </div>
 
-            {/* Tự đo TDS khi nghỉ lâu */}
+            {/* Cach do TDS + nhiet do */}
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
-                <div className="font-semibold text-slate-200">Tự đo TDS khi nghỉ lâu (tds_auto)</div>
+                <div className="font-semibold text-slate-200">Đo TDS + nhiệt độ liên tục</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
-                  Tự chạy bơm 25 giây để làm mới số đo TDS sau mỗi 1 giờ máy nghỉ.
+                  Tắt (khuyên dùng): 30 phút đo 1 lần lúc nước đang chảy rồi giữ số. Bật: cập nhật từng giây, kể cả khi
+                  nước đứng nên kém chính xác hơn.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={config?.sens_rt === 1}
+                onChange={(e) => handleUpdateConfig('sens_rt', e.target.checked ? 1 : 0)}
+                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Tự đo TDS khi máy nghỉ */}
+            <div
+              className={`flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800 ${
+                config?.sens_rt === 1 ? 'opacity-50' : ''
+              }`}
+            >
+              <div>
+                <div className="font-semibold text-slate-200">Tự chạy bơm để đo khi máy nghỉ</div>
+                <div className="text-slate-400 mt-0.5 text-[11px]">
+                  Chế độ 30 phút: tới hạn đo mà máy đang nghỉ thì tự chạy bơm 10 giây để đo rồi tắt.
                 </div>
               </div>
               <input
@@ -442,7 +463,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5">
                   <NumField
-                    value={config?.p_min ?? 150}
+                    value={config?.p_min ?? 40}
                     step={10}
                     onCommit={(v) => handleUpdateConfig('p_min', v)}
                     className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-slate-100"
@@ -472,7 +493,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5">
                   <NumField
-                    value={config?.p_block ?? 1500}
+                    value={config?.p_block ?? 700}
                     step={50}
                     onCommit={(v) => handleUpdateConfig('p_block', v)}
                     className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
@@ -595,7 +616,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                   Bấm <strong className="text-cyan-300">Lọc ngay</strong> để bơm đẩy dòng nước lưu thông liên tục qua đầu dò.
                 </li>
                 <li>
-                  Chờ bơm chạy tối thiểu <strong className="text-purple-300">20 giây</strong> (nước ổn định bọt khí).
+                  Chờ bơm chạy tối thiểu <strong className="text-purple-300">10 giây</strong> (nước ổn định bọt khí).
                 </li>
                 <li>
                   Nhập chỉ số TDS đo được từ bút đo chuẩn vào ô bên dưới rồi bấm Lưu.
@@ -612,7 +633,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 }`}
               >
                 {isPumpRunningForTds ? `${elapsedRunSeconds} giây` : 'Bơm đang tắt'}
-                {isTdsReady ? ' (Đủ điều kiện)' : ' (Cần ≥ 20s)'}
+                {isTdsReady ? ' (Đủ điều kiện)' : ' (Cần ≥ 10s)'}
               </span>
             </div>
 
@@ -904,7 +925,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
                 <span className="text-slate-500">Phiên bản Firmware:</span>
-                <div className="font-mono font-bold text-slate-200 mt-0.5">{config?.fw || '1.0.0'}</div>
+                <div className="font-mono font-bold text-slate-200 mt-0.5">{config?.fw || '—'}</div>
               </div>
               <div>
                 <span className="text-slate-500">Mã thiết bị (MAC):</span>
