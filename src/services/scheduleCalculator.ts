@@ -5,67 +5,34 @@
 
 import { UfConfig } from '../types/system';
 
-export type ScheduleConfig = Pick<UfConfig, 'fmode' | 'fmin' | 'day' | 'wday' | 'win_s' | 'win_e'>;
+export type ScheduleConfig = Pick<UfConfig, 'fmode' | 'fmin' | 'day' | 'wday'>;
 
 /**
- * Returns whether a given hour (0..23) is inside the mode's daily window,
- * and if it belongs to the previous day's window (spanning midnight).
+ * Returns whether a given hour (0..23) is inside the mode's daily window (same table as firmware
+ * settings_mode_in), and if it belongs to the previous day's window (spanning midnight).
+ *   1 Daytime 08:00-12:00 + 14:00-17:00 (lunch break)   2 Evening 19:00-05:00
+ *   3 Night   23:00-05:00                               4 All day
  */
 export function getHourWindowInfo(
   hour: number,
-  fmode: number,
-  win_s: number,
-  win_e: number
+  fmode: number
 ): { inWindow: boolean; belongsToPreviousDay: boolean } {
-  if (fmode === 0) {
-    // Manual mode: never automatically active
-    return { inWindow: false, belongsToPreviousDay: false };
-  }
-
-  let start = 0;
-  let end = 0;
-
+  const out = { inWindow: false, belongsToPreviousDay: false };
   switch (fmode) {
-    case 1: // Daytime 08:00 - 17:00
-      start = 8;
-      end = 17;
-      break;
-    case 2: // Evening 19:00 - 05:00
-      start = 19;
-      end = 5;
-      break;
-    case 3: // Night 23:00 - 05:00
-      start = 23;
-      end = 5;
-      break;
-    case 4: // 24/24
-      return { inWindow: true, belongsToPreviousDay: false };
-    case 5: // Custom
-      start = ((win_s % 24) + 24) % 24;
-      end = ((win_e % 24) + 24) % 24;
-      if (start === end) {
-        return { inWindow: true, belongsToPreviousDay: false };
-      }
-      break;
-    default:
-      return { inWindow: false, belongsToPreviousDay: false };
-  }
-
-  if (start < end) {
-    // Normal window inside the same day, e.g. 8 to 17
-    const inWindow = hour >= start && hour < end;
-    return { inWindow, belongsToPreviousDay: false };
-  } else {
-    // Overnight window spanning midnight, e.g. 23 to 5 (hours 23, 0, 1, 2, 3, 4)
-    if (hour >= start) {
-      // Evening part, belongs to current calendar day
-      return { inWindow: true, belongsToPreviousDay: false };
-    } else if (hour < end) {
-      // Post-midnight part (00:00 to end), belongs to the day the window started (yesterday)
-      return { inWindow: true, belongsToPreviousDay: true };
-    } else {
-      return { inWindow: false, belongsToPreviousDay: false };
+    case 1:
+      return { inWindow: (hour >= 8 && hour < 12) || (hour >= 14 && hour < 17), belongsToPreviousDay: false };
+    case 2:
+    case 3: {
+      const start = fmode === 2 ? 19 : 23;
+      if (hour >= start) return { inWindow: true, belongsToPreviousDay: false };
+      // After midnight: the day rule follows the day the window started (yesterday)
+      if (hour < 5) return { inWindow: true, belongsToPreviousDay: true };
+      return out;
     }
+    case 4:
+      return { inWindow: true, belongsToPreviousDay: false };
+    default:
+      return out; // 0 = manual: never runs by schedule
   }
 }
 
@@ -119,12 +86,7 @@ export function isFilterActiveAt(time: Date, config: ScheduleConfig): boolean {
     return false;
   }
 
-  const { inWindow, belongsToPreviousDay } = getHourWindowInfo(
-    hour,
-    config.fmode,
-    config.win_s,
-    config.win_e
-  );
+  const { inWindow, belongsToPreviousDay } = getHourWindowInfo(hour, config.fmode);
 
   if (!inWindow) {
     return false;
@@ -154,12 +116,7 @@ export function generate24HourSchedule(targetDate: Date, config: ScheduleConfig)
   const slots: HourScheduleSlot[] = [];
 
   for (let hour = 0; hour < 24; hour++) {
-    const { inWindow, belongsToPreviousDay } = getHourWindowInfo(
-      hour,
-      config.fmode,
-      config.win_s,
-      config.win_e
-    );
+    const { inWindow, belongsToPreviousDay } = getHourWindowInfo(hour, config.fmode);
 
     if (!inWindow) {
       slots.push({
