@@ -309,9 +309,12 @@ export function formatHistoryEvent(raw: HistoryEventTuple): FormattedHistoryEven
       // Water change (drain) started / stopped
       category = 'run';
       icon = 'droplet';
-      title = val === 1 ? 'Bắt đầu thay nước (xả)' : 'Dừng thay nước';
+      // val 1 = hen gio / bam tay, 2 = theo TDS (firmware 1.1.0), 0 = dung
+      title = val >= 1 ? 'Bắt đầu thay nước (xả)' : 'Dừng thay nước';
       detail =
-        val === 1
+        val === 2
+          ? 'TDS vượt mức trên – tự thay nước'
+          : val === 1
           ? src === 0
             ? 'Đến giờ thay nước theo lịch'
             : 'Thay nước ngay theo lệnh'
