@@ -98,6 +98,7 @@ export class UfDemoDevice {
     c.tds_hi = clamp(Math.round(c.tds_hi), 30, 2000);
     c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
+    c.tds_z = clamp(c.tds_z, 0, 0.3);
   }
 
   // Cong suat uoc tinh = dien ap danh dinh x tong dong (giong firmware)
@@ -609,6 +610,27 @@ export class UfDemoDevice {
         break;
       }
 
+      case 'TDS_ZERO':
+        // Dau do kho: so dang doc thanh 0 ppm. Qua cao (dang ngam nuoc) thi tu choi nhu firmware
+        if (this.status.tds_live > 120) {
+          this.emit({
+            t: 'ack',
+            a: 'TDS_ZERO',
+            ok: false,
+            msg: 'Số đọc quá cao để làm điểm 0 - nhấc đầu dò khỏi nước, lau khô rồi thử lại',
+          });
+          return;
+        }
+        this.config.tds_z = Number((this.status.tds_live / 430).toFixed(3));
+        this.status.tds_live = 0;
+        this.status.tds = 0;
+        this.status.tds_age = 0;
+        this.addHistoryEvent(14, 3, 0);
+        this.emit({ t: 'ack', a: 'TDS_ZERO', ok: true, msg: 'Đã đặt điểm 0 TDS' });
+        this.emit({ t: 'cf', ...this.config });
+        this.emit({ t: 'st', ...this.status });
+        break;
+
       case 'DEFAULTS':
         this.config = {
           ...INITIAL_CONFIG,
@@ -620,6 +642,7 @@ export class UfDemoDevice {
           z_d: this.config.z_d,
           k_d: this.config.k_d,
           tds_k: this.config.tds_k,
+          tds_z: this.config.tds_z,
         };
         this.addHistoryEvent(9, 3, 0);
         this.emit({ t: 'ack', a: 'DEFAULTS', ok: true, msg: 'Đã khôi phục cài đặt mặc định' });
