@@ -39,8 +39,9 @@ export interface UfStatus {
   dleft: number; // Draining: seconds left (0 = not draining)
   dcool: number; // Just drained: seconds left before another water change is allowed (0 = allowed)
   dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock / TDS mode)
-  fcl: number; // Filter cleanliness 0-100 % from pump current (-1 = unknown)
+  fcl: number; // Filter cleanliness 0-100 % from the average pump current of a run, updated when a run ends (-1 = unknown)
   fcl_ma: number; // Learned pump current with a clean filter (mA, 0 = not learned yet)
+  pavg: number; // Average pump current of the last judged filter run (mA, 0 = none yet). Firmware 1.2.0+
   rdur: number; // Pump running: seconds of this run; idle: length of the last run
   err: number; // Error bitmask (bit b = E(b+1))
   wrn: number; // Warning bitmask (subset of err, machine continues filtering)
@@ -71,8 +72,9 @@ export interface UfConfig {
   valve: 0 | 1; // 1 = valve installed, 0 = no valve
   sens_rt: 0 | 1; // 0 = TDS / temperature sampled every 30 min while water flows, 1 = continuous
   tds_auto: 0 | 1; // 30-min mode: machine idle when a sample is due -> run the pump 10 s to measure
+  ptype: number; // Pump type: 0 small, 1 large. p_min / p_dirty / p_block are the thresholds of the selected type. Firmware 1.2.0+
   p_min: number; // Pump under-current alarm threshold (mA)
-  p_dirty: number; // Pump dirty filter warning threshold (mA, 0 = off)
+  p_dirty: number; // Dirty filter threshold: average pump current of a whole run above this -> E3 (mA, 0 = off)
   p_block: number; // Pump locked rotor/over-current cutoff threshold (mA)
   v_min: number; // Valve under-current threshold (mA)
   v_max: number; // Valve over-current threshold (mA)
@@ -176,7 +178,7 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     name: 'Lõi lọc bẩn (dòng bơm tăng)',
     isLocking: false,
     isWarning: true,
-    hint: 'Cảnh báo: Máy vẫn tiếp tục lọc. Nên vệ sinh súc rửa hoặc thay lõi lọc UF sớm.',
+    hint: 'Cảnh báo: Máy vẫn tiếp tục lọc. Dòng bơm trung bình của lượt lọc vừa rồi cao hơn mức lõi bẩn. Nên súc rửa hoặc thay lõi lọc UF sớm; lượt sau dòng trung bình thấp lại thì cảnh báo tự hết.',
   },
   4: {
     code: 'E4',
@@ -251,6 +253,12 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     hint: 'Máy đã khóa an toàn! Cuộn van xả chập hoặc kẹt. Kiểm tra van xả trước khi bấm "Xóa lỗi".',
   },
 };
+
+// 2 loai bom va nguong dong mac dinh cua firmware (config.h: DEF_PUMP_xxx / DEF_PUMP_L_xxx)
+export const PUMP_TYPES: { id: number; name: string; p_min: number; p_dirty: number; p_block: number }[] = [
+  { id: 0, name: 'Bơm nhỏ', p_min: 40, p_dirty: 750, p_block: 1200 },
+  { id: 1, name: 'Bơm lớn', p_min: 80, p_dirty: 800, p_block: 1200 },
+];
 
 // Filter mode names and descriptions
 export const FILTER_MODES: { id: number; name: string; hours: string; icon: string; desc: string }[] = [
@@ -338,7 +346,7 @@ export function assessCurrent(
   }
   if (mA > max) return { level: 'over', label: 'Quá dòng', tone: 'rose' };
   if (mA < min) return { level: 'low', label: 'Dòng quá thấp', tone: 'rose' };
-  if (warn > 0 && mA > warn) return { level: 'high', label: 'Dòng cao – lõi lọc bẩn', tone: 'amber' };
+  if (warn > 0 && mA > warn) return { level: 'high', label: 'Cao hơn mức lõi bẩn', tone: 'amber' };
   return { level: 'ok', label: 'Bình thường', tone: 'emerald' };
 }
 
@@ -435,6 +443,7 @@ export const INITIAL_STATUS: UfStatus = {
   dnext_t: 0,
   fcl: 92,
   fcl_ma: 260,
+  pavg: 268,
   rdur: 0,
   err: 0,
   wrn: 0,
@@ -460,9 +469,10 @@ export const INITIAL_CONFIG: UfConfig = {
   valve: 0,
   sens_rt: 0,
   tds_auto: 1,
+  ptype: 0,
   p_min: 40,
-  p_dirty: 350,
-  p_block: 700,
+  p_dirty: 750,
+  p_block: 1200,
   v_min: 50,
   v_max: 1000,
   tds_alarm: 300,
