@@ -40,7 +40,10 @@ export class UfDemoDevice {
   private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
   private drainCooldownSeconds: number = 0;   // Xa xong phai nghi 1 tieng moi duoc xa lai (DRAIN_COOLDOWN_S)
   private runElapsedSeconds: number = 0;
-  private cleanLearnSeconds: number = 0;      // Sau FILTER_RESET: bom chay du lau thi hoc lai loi sach
+  private pumpWasOn: boolean = false;
+  private avgSum: number = 0;                 // Tong dong bom cac giay da lay mau cua luot dang chay
+  private avgCount: number = 0;
+  private pumpAlt = { p_min: 80, p_dirty: 800, p_block: 1200 };   // Bo nguong cua loai bom KIA (mac dinh: bom lon)
 
   constructor() {
     this.status = JSON.parse(JSON.stringify(INITIAL_STATUS));
@@ -298,17 +301,40 @@ export class UfDemoDevice {
     this.status.dnext_t = 0;
   }
 
-  // Thoi gian da chay cua luot bom + hoc lai loi sach sau FILTER_RESET (goi moi giay, dung trang thai giay truoc)
+  // Thoi gian da chay cua luot bom + lay mau dong bom de tinh trung binh luot (goi moi giay, dung trang thai giay truoc).
+  // Giong firmware 1.2.0: KHONG ket luan loi ban tuc thoi - het luot (bom tat) moi tinh trung binh -> E3 + do sach.
   private updatePumpRun() {
     if (this.status.p[0] === 1) {
+      this.pumpWasOn = true;
       this.runElapsedSeconds++;
       this.status.rdur = this.runElapsedSeconds;
-      if (this.status.fcl < 0 && this.status.st !== 6 && ++this.cleanLearnSeconds >= 12) {
-        this.status.fcl = 100;
-        this.status.fcl_ma = this.status.p[2];
+      if (this.status.st !== 6 && this.runElapsedSeconds > 10 && this.status.p[2] >= this.config.p_min) {
+        this.avgSum += this.status.p[2];
+        this.avgCount++;
       }
+      return;
+    }
+    this.runElapsedSeconds = 0;
+    if (!this.pumpWasOn) return;
+    this.pumpWasOn = false;
+    const n = this.avgCount;
+    const avg = n ? Math.round(this.avgSum / n) : 0;
+    this.avgSum = 0;
+    this.avgCount = 0;
+    if (!this.config.p_dirty || n < 20) return;           // Luot qua ngan (do TDS) -> giu ket luan cu
+    this.status.pavg = avg;
+    if (!this.status.fcl_ma || avg + 5 <= this.status.fcl_ma) this.status.fcl_ma = avg;
+    const span = this.config.p_dirty - this.status.fcl_ma;
+    this.status.fcl = span <= 0 ? 0 : Math.min(100, Math.max(0, Math.round((100 * (this.config.p_dirty - avg)) / span)));
+    const hadE3 = (this.status.err & 4) !== 0;
+    if (avg > this.config.p_dirty) {
+      this.status.err |= 4;
+      this.status.wrn |= 4;
+      if (!hadE3) this.addHistoryEvent(5, 0, 4);
     } else {
-      this.runElapsedSeconds = 0;
+      this.status.err &= ~4;
+      this.status.wrn &= ~4;
+      if (hadE3) this.addHistoryEvent(6, 0, 4);
     }
   }
 
@@ -516,7 +542,11 @@ export class UfDemoDevice {
       case 'FILTER_RESET':
         this.status.fcl = -1;
         this.status.fcl_ma = 0;
-        this.cleanLearnSeconds = 0;
+        this.status.pavg = 0;
+        this.status.err &= ~4;
+        this.status.wrn &= ~4;
+        this.avgSum = 0;
+        this.avgCount = 0;
         this.emit({ t: 'ack', a: 'FILTER_RESET', ok: true, msg: 'Đã ghi nhận lõi mới - máy học lại ở lượt lọc sau' });
         this.emit({ t: 'st', ...this.status });
         break;
@@ -544,7 +574,23 @@ export class UfDemoDevice {
           }
         }
         const oldMode = this.config.fmode;
+        // Loai bom truoc (giong firmware): doi cho 2 bo nguong, hoc lai dong loi sach
+        if ('ptype' in params) {
+          const t = Number(params.ptype) ? 1 : 0;
+          if (t !== this.config.ptype) {
+            const cur = { p_min: this.config.p_min, p_dirty: this.config.p_dirty, p_block: this.config.p_block };
+            Object.assign(this.config, this.pumpAlt);
+            this.pumpAlt = cur;
+            this.config.ptype = t;
+            this.status.fcl = -1;
+            this.status.fcl_ma = 0;
+            this.status.pavg = 0;
+            this.status.err &= ~4;
+            this.status.wrn &= ~4;
+          }
+        }
         for (const [key, val] of entries) {
+          if (key === 'ptype') continue;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (this.config as any)[key] = Number(val);
         }
