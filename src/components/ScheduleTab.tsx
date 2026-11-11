@@ -445,7 +445,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
           </label>
           <p className="text-xs text-slate-400 mt-0.5">
             Đóng van lọc, mở van xả rồi bơm nước ra ngoài. Xả được ưu tiên hơn lọc; xả xong máy lọc tiếp theo lịch.
-            Mỗi lần xả xong máy nghỉ 1 tiếng mới xả lại.
+            Mỗi lần xả xong máy nghỉ 1 tiếng (hẹn giờ) hoặc 2 tiếng (theo TDS) mới xả lại.
           </p>
         </div>
         {config?.drain !== 1 ? (
@@ -510,7 +510,8 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500">
-                  Máy đo TDS sau mỗi lần xả: còn cao hơn mức dưới thì xả tiếp (cách nhau 1 tiếng), đạt mức dưới thì ngừng.
+                  Máy đo TDS sau mỗi lần xả: còn cao hơn mức dưới thì xả tiếp, đạt mức dưới thì ngừng. Hai lần xả cách nhau ít nhất
+                  2 tiếng để không thay liên tục làm hết nước (Firmware 1.3.0; bản cũ hơn là 1 tiếng).
                 </p>
               </div>
             )}
