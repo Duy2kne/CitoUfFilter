@@ -71,7 +71,9 @@ export interface UfConfig {
   man_min: number; // Manual filter run duration in minutes (5-240)
   valve: 0 | 1; // 1 = valve installed, 0 = no valve
   sens_rt: 0 | 1; // 0 = TDS / temperature sampled every 30 min while water flows, 1 = continuous
-  tds_auto: 0 | 1; // 30-min mode: machine idle when a sample is due -> run the pump 10 s to measure
+  tds_auto: 0 | 1; // Interval mode: machine idle when a sample is due -> run the pump tds_run seconds to measure
+  tds_int: number; // Minutes between TDS / temperature samples (5-240, default 30) - Firmware 1.3.0
+  tds_run: number; // Seconds of water flow before a sample is taken = pump run for a measurement (5-60, default 10)
   ptype: number; // Pump type: 0 small, 1 large. p_min / p_dirty / p_block are the thresholds of the selected type. Firmware 1.2.0+
   p_min: number; // Pump under-current alarm threshold (mA)
   p_dirty: number; // Dirty filter threshold: average pump current of a whole run above this -> E3 (mA, 0 = off)
@@ -350,6 +352,18 @@ export function assessCurrent(
   return { level: 'ok', label: 'Bình thường', tone: 'emerald' };
 }
 
+// Khoang nghi giua 2 lan thay nuoc (giay): che do theo TDS 2 tieng, hen gio 1 tieng (giong filter_drain_gap_s)
+export function drainGapSeconds(dMode: number | undefined): number {
+  return dMode === 1 ? 7200 : 3600;
+}
+
+// So phut -> "30 phút", "1 tiếng", "1 tiếng 30 phút"
+export function formatMinutes(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m} phút`;
+  return m % 60 === 0 ? `${m / 60} tiếng` : `${Math.floor(m / 60)} tiếng ${m % 60} phút`;
+}
+
 /**
  * Format duration in seconds to "HH:MM:SS" or "MM:SS"
  */
@@ -469,6 +483,8 @@ export const INITIAL_CONFIG: UfConfig = {
   valve: 0,
   sens_rt: 0,
   tds_auto: 1,
+  tds_int: 30,
+  tds_run: 10,
   ptype: 0,
   p_min: 40,
   p_dirty: 750,
