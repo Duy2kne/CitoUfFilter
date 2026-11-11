@@ -5,6 +5,7 @@
 
 import {
   DEFAULT_PIN,
+  drainGapSeconds,
   HistoryEventTuple,
   INITIAL_CONFIG,
   INITIAL_STATUS,
@@ -38,7 +39,7 @@ export class UfDemoDevice {
   private isDraining: boolean = false;
   private drainRemainingSeconds: number = 0;
   private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
-  private drainCooldownSeconds: number = 0;   // Xa xong phai nghi 1 tieng moi duoc xa lai (DRAIN_COOLDOWN_S)
+  private drainCooldownSeconds: number = 0;   // Xa xong phai nghi moi duoc xa lai: hen gio 1 tieng, theo TDS 2 tieng
   private runElapsedSeconds: number = 0;
   private pumpWasOn: boolean = false;
   private avgSum: number = 0;                 // Tong dong bom cac giay da lay mau cua luot dang chay
@@ -102,6 +103,8 @@ export class UfDemoDevice {
     c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
     c.tds_z = clamp(c.tds_z, 0, 0.3);
+    c.tds_int = clamp(Math.round(c.tds_int), 5, 240);
+    c.tds_run = clamp(Math.round(c.tds_run), 5, 60);
   }
 
   // Cong suat uoc tinh = dien ap danh dinh x tong dong (giong firmware)
@@ -177,8 +180,8 @@ export class UfDemoDevice {
       this.status.run = { tot: this.config.d_sec, left: this.status.dleft };
       if (this.drainRemainingSeconds <= 0) {
         this.isDraining = false;
-        this.drainCooldownSeconds = 3600;
-        this.status.dcool = 3600;
+        this.drainCooldownSeconds = drainGapSeconds(this.config.d_mode);
+        this.status.dcool = this.drainCooldownSeconds;
         // Thay nuoc xong: TDS giam (de che do theo TDS dung lai khi dat muc duoi)
         if (this.status.tds !== null) this.status.tds = Math.max(90, Math.round(this.status.tds * 0.8));
         this.status.tds_age = 0;
@@ -190,14 +193,14 @@ export class UfDemoDevice {
       }
     }
 
-    // Handle Measuring TDS cycle (bom chay 10s, giong SENS_RUN_MS)
+    // Handle Measuring TDS cycle (bom chay tds_run giay, giong SENS_RUN_MS)
     if (this.isMeasuring) {
       this.measureRemainingSeconds--;
       this.status.st = 4;
       this.status.ph = 'MEASURING';
       this.status.p = [1, 1, 270];
       this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 310 : 0];
-      this.status.run = { tot: 10, left: Math.max(0, this.measureRemainingSeconds) };
+      this.status.run = { tot: this.config.tds_run, left: Math.max(0, this.measureRemainingSeconds) };
 
       if (this.measureRemainingSeconds <= 0) {
         this.isMeasuring = false;
@@ -206,7 +209,7 @@ export class UfDemoDevice {
         this.status.tds = newTds;
         this.status.tds_age = 0;
         this.status.tds_live = newTds;
-        this.addHistoryEvent(4, 2, 10);
+        this.addHistoryEvent(4, 2, this.config.tds_run);
       } else {
         this.emit({ t: 'st', ...this.status });
         return;
@@ -493,14 +496,14 @@ export class UfDemoDevice {
           const liveTds = Math.floor(125 + Math.random() * 25);
           this.status.tds = liveTds;
           this.status.tds_age = 0;
-          this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: 'Đang lọc - số đo cập nhật khi nước chảy đủ 10 giây' });
+          this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: `Đang lọc - số đo cập nhật khi nước chảy đủ ${this.config.tds_run} giây` });
           this.emit({ t: 'st', ...this.status });
           break;
         }
 
         this.isMeasuring = true;
-        this.measureRemainingSeconds = 10;
-        this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: 'Đang chạy bơm 10 giây để đo TDS + nhiệt độ' });
+        this.measureRemainingSeconds = this.config.tds_run;
+        this.emit({ t: 'ack', a: 'MEASURE', ok: true, msg: `Đang chạy bơm ${this.config.tds_run} giây để đo TDS + nhiệt độ` });
         this.emit({ t: 'st', ...this.status });
         break;
       }
