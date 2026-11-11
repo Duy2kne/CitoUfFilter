@@ -42,6 +42,18 @@ interface HomeTabProps {
   onRequestConfirm: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
 }
 
+// Tron 2 mau '#rrggbb' (k = 0 -> a, 1 -> b) - de vong tien do doi mau dan toi mau "xong"
+function mixHex(a: string, b: string, k: number): string {
+  const t = Math.min(1, Math.max(0, k));
+  const ch = (s: string, i: number) => parseInt(s.slice(1 + i * 2, 3 + i * 2), 16);
+  return (
+    '#' +
+    [0, 1, 2]
+      .map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * t).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
 // Cac muc thoi gian loc tay chon nhanh (phut) - firmware nhan 5..240
 const MANUAL_PRESETS = [5, 15, 30, 60, 120];
 
@@ -224,6 +236,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   // Use a 270-degree arc with bottom gap for gauge look
   const arcLength = circumference * 0.75;
   const strokeDashoffset = isFiltering ? arcLength * (1 - progressRatio) : arcLength;
+  // Mau vong (giong man hinh may): dau vong = mau trang thai, cang gan du thoi gian cang ngả sang mau "xong"
+  // loc: xanh duong -> xanh la; thay nuoc: cam -> vang
+  const ringStart = isDraining ? '#f97316' : '#06b6d4';
+  const ringEnd = mixHex(isDraining ? '#fb923c' : '#3b82f6', isDraining ? '#facc15' : '#22c55e', progressRatio);
 
   // Status display texts & colors
   const getStatusTextAndStyle = () => {
@@ -315,7 +331,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   // ----- Dong dien tung thiet bi (so voi nguong dang cai tren may) -----
   const pMin = config?.p_min ?? 40;
   const pDirty = config?.p_dirty ?? 0;
-  const pBlock = config?.p_block ?? 700;
+  const pBlock = config?.p_block ?? 1200;
   const pumpOn = status?.p[0] === 1;
   const pumpMa = status?.p[2] ?? 0;
   const pumpAssess = assessCurrent(pumpOn, status ? status.p[1] === 1 : true, pumpMa, pMin, pBlock, pDirty);
@@ -323,7 +339,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     pumpAssess.level === 'low'
       ? 'Bơm được cấp điện nhưng gần như không ăn dòng: kiểm tra dây bơm, giắc cắm, bơm kẹt rác hoặc hồ cạn nước.'
       : pumpAssess.level === 'high'
-      ? 'Bơm phải gắng sức hơn bình thường – lõi lọc đang nghẹt, nên súc rửa hoặc thay lõi.'
+      ? 'Dòng lúc này cao hơn mức lõi bẩn. Máy chỉ kết luận lõi bẩn (E3) khi lượt lọc kết thúc, theo dòng trung bình cả lượt.'
       : pumpAssess.level === 'over'
       ? 'Dòng vượt mức ngắt khẩn cấp: bơm kẹt cánh hoặc chập dây. Máy sẽ tự khóa.'
       : pumpAssess.level === 'stuck'
@@ -471,8 +487,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             />
             <defs>
               <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#06b6d4" />
-                <stop offset="100%" stopColor="#3b82f6" />
+                <stop offset="0%" stopColor={ringStart} />
+                <stop offset="100%" stopColor={ringEnd} />
               </linearGradient>
             </defs>
           </svg>
@@ -684,7 +700,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         <div className={`grid grid-cols-1 gap-3 ${hasValve || hasDrainValve ? 'md:grid-cols-2' : ''}`}>
           <DeviceCurrentRow
             icon={<Zap className="w-4 h-4 text-cyan-400" />}
-            name="Bơm lọc"
+            name={config ? `Bơm lọc (${config.ptype === 1 ? 'bơm lớn' : 'bơm nhỏ'})` : 'Bơm lọc'}
             onText="Đang chạy"
             offText="Đang tắt"
             on={pumpOn}
@@ -749,7 +765,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         </div>
         <p className="text-[11px] text-slate-500 leading-relaxed">
           Vạch trên thanh là ngưỡng bảo vệ đang cài: dưới &quot;min&quot; khi đang chạy là không có tải, trên &quot;ngắt&quot; máy
-          dừng khẩn cấp{pDirty > 0 ? ', trên "bẩn" là lõi lọc nghẹt' : ''}. Công suất tính theo nguồn {status?.vn ?? 12} V danh định.
+          dừng khẩn cấp{pDirty > 0 ? ', dòng trung bình cả lượt trên "bẩn" là lõi lọc nghẹt' : ''}. Công suất tính theo nguồn {status?.vn ?? 12} V danh định.
         </p>
       </section>
 
@@ -840,6 +856,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
               <Filter className="w-4 h-4 text-cyan-400" />
               <span>Độ sạch lõi lọc</span>
+              <span className="text-[10px] text-slate-500">· cập nhật sau mỗi lượt lọc</span>
             </div>
             <span className="text-lg font-black font-mono text-slate-100">{fcl < 0 ? '—' : `${fcl}%`}</span>
           </div>
@@ -851,8 +868,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               {fcl < 0
                 ? pDirty === 0
                   ? 'Đang tắt cảnh báo lõi bẩn'
-                  : 'Máy tự học sau khi bơm chạy ổn định'
-                : `Lõi sạch ${status?.fcl_ma ?? 0} mA · bẩn ở ${pDirty} mA`}
+                  : 'Máy tính khi xong một lượt lọc (từ 30 giây)'
+                : `Lõi sạch ${status?.fcl_ma ?? 0} mA · bẩn ở ${pDirty} mA${
+                    status?.pavg ? ` · lượt vừa rồi TB ${status.pavg} mA` : ''
+                  }`}
             </span>
             <button
               onClick={handleFilterReset}
