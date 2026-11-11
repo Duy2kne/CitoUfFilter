@@ -124,6 +124,8 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         valve: (cfPkt.valve ?? 0) as 0 | 1,
         sens_rt: (cfPkt.sens_rt ?? 0) as 0 | 1,
         tds_auto: (cfPkt.tds_auto ?? 0) as 0 | 1,
+        tds_int: Number(cfPkt.tds_int ?? 30),
+        tds_run: Number(cfPkt.tds_run ?? 10),
         ptype: Number(cfPkt.ptype ?? 0),
         p_min: Number(cfPkt.p_min ?? 40),
         p_dirty: Number(cfPkt.p_dirty ?? 0),
