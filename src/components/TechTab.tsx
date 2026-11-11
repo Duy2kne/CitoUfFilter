@@ -50,6 +50,7 @@ import {
 import {
   formatCurrent,
   formatDuration,
+  formatMinutes,
   PUMP_TYPES,
   UfConfig,
   UfStatus,
@@ -220,10 +221,12 @@ export const TechTab: React.FC<TechTabProps> = ({
     );
   };
 
-  // Hieu chuan TDS: may chi nhan khi bom LOC da chay lien tuc >= 10 giay (dang xa thi khong tinh)
+  // Hieu chuan TDS: may chi nhan khi bom LOC da chay lien tuc >= tds_run giay (dang xa thi khong tinh)
+  const tdsRun = config?.tds_run ?? 10;
+  const tdsInt = config?.tds_int ?? 30;
   const isPumpRunningForTds = status?.p[0] === 1 && status?.st !== 6;
   const elapsedRunSeconds = status ? status.rdur : 0;
-  const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= 10;
+  const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= tdsRun;
 
   return (
     <div className="space-y-4 pb-12 animate-in fade-in duration-200">
@@ -396,7 +399,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               <div>
                 <div className="font-semibold text-slate-200">Đo TDS + nhiệt độ liên tục</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
-                  Tắt (khuyên dùng): 30 phút đo 1 lần lúc nước đang chảy rồi giữ số. Bật: cập nhật từng giây, kể cả khi
+                  Tắt (khuyên dùng): {formatMinutes(tdsInt)} đo 1 lần lúc nước đang chảy rồi giữ số. Bật: cập nhật từng giây, kể cả khi
                   nước đứng nên kém chính xác hơn.
                 </div>
               </div>
@@ -417,7 +420,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               <div>
                 <div className="font-semibold text-slate-200">Tự chạy bơm để đo khi máy nghỉ</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
-                  Chế độ 30 phút: tới hạn đo mà máy đang nghỉ thì tự chạy bơm 10 giây để đo rồi tắt.
+                  Tới hạn đo mà máy đang nghỉ thì tự chạy bơm {tdsRun} giây để đo rồi tắt.
                 </div>
               </div>
               <input
@@ -426,6 +429,45 @@ export const TechTab: React.FC<TechTabProps> = ({
                 onChange={(e) => handleUpdateConfig('tds_auto', e.target.checked ? 1 : 0)}
                 className="w-5 h-5 shrink-0 accent-cyan-500 rounded cursor-pointer"
               />
+            </div>
+
+            {/* Chu ky do + thoi gian chay bom de do (Firmware 1.3.0) */}
+            <div
+              className={`p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 ${
+                config?.sens_rt === 1 ? 'opacity-50' : ''
+              }`}
+            >
+              <div>
+                <div className="font-semibold text-slate-200">Thời gian đo TDS + nhiệt độ</div>
+                <div className="text-slate-400 mt-0.5 text-[11px]">
+                  Mặc định 30 phút đo 1 lần, nước chảy 10 giây rồi lấy số. Muốn đo thưa và kỹ hơn thì đặt ví dụ 60 phút,
+                  20 giây. Cần Firmware 1.3.0 trở lên.
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-300">Đo 1 lần mỗi (5–240)</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <NumField
+                    value={tdsInt}
+                    step={5}
+                    onCommit={(v) => handleUpdateConfig('tds_int', Math.min(240, Math.max(5, Math.round(v))))}
+                    className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-cyan-300"
+                  />
+                  <span className="text-slate-400 w-8">phút</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-300">Chạy bơm để đo (5–60)</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <NumField
+                    value={tdsRun}
+                    step={5}
+                    onCommit={(v) => handleUpdateConfig('tds_run', Math.min(60, Math.max(5, Math.round(v))))}
+                    className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right font-mono text-cyan-300"
+                  />
+                  <span className="text-slate-400 w-8">giây</span>
+                </div>
+              </div>
             </div>
 
             {/* Ngưỡng cảnh báo TDS */}
@@ -716,7 +758,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                   Bấm <strong className="text-cyan-300">Lọc ngay</strong> để bơm đẩy dòng nước lưu thông liên tục qua đầu dò.
                 </li>
                 <li>
-                  Chờ bơm chạy tối thiểu <strong className="text-purple-300">10 giây</strong> (nước ổn định bọt khí).
+                  Chờ bơm chạy tối thiểu <strong className="text-purple-300">{tdsRun} giây</strong> (nước ổn định bọt khí).
                 </li>
                 <li>
                   Nhập chỉ số TDS đo được từ bút đo chuẩn vào ô bên dưới rồi bấm Lưu.
@@ -733,7 +775,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 }`}
               >
                 {isPumpRunningForTds ? `${elapsedRunSeconds} giây` : 'Bơm đang tắt'}
-                {isTdsReady ? ' (Đủ điều kiện)' : ' (Cần ≥ 10s)'}
+                {isTdsReady ? ' (Đủ điều kiện)' : ` (Cần ≥ ${tdsRun}s)`}
               </span>
             </div>
 
