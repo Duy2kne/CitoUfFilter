@@ -14,7 +14,6 @@ import {
   Repeat,
   Save,
   Sun,
-  Timer,
 } from 'lucide-react';
 import {
   DAY_OPTIONS,
@@ -248,7 +247,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         </div>
       </div>
 
-      {/* 1. Filter Mode Selector (fmode) */}
+      {/* 1. Filter Mode Selector */}
       <div className="space-y-3">
         <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
           1. Chế độ lọc (Khung giờ)
@@ -295,7 +294,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         </div>
       </div>
 
-      {/* 2. Minutes Per Hour Slider (fmin) */}
+      {/* 2. Minutes Per Hour Slider */}
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -405,7 +404,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         )}
       </div>
 
-      {/* 4. Manual Filter Duration (man_min) */}
+      {/* 4. Manual Filter Duration */}
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-3">
         <div className="flex items-center justify-between">
           <div>
