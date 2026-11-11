@@ -25,8 +25,10 @@ import {
   CurrentAssessment,
   FILTER_MODES,
   formatCurrent,
+  drainGapSeconds,
   formatDuration,
   formatLocalHm,
+  formatMinutes,
   formatTdsAge,
   isLockedFault,
   parseErrors,
@@ -208,6 +210,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const hasValve = (config?.valve ?? 0) === 1 || (status?.v?.[0] ?? 0) === 1;
   const hasDrainValve = (config?.drain ?? 0) === 1 || (status?.d?.[0] ?? 0) === 1;
   const drainCooldown = status?.dcool ?? 0;
+  const tdsRun = config?.tds_run ?? 10; // Giay bom chay de do TDS
   const manualMin = config?.man_min ?? 30;
   const drainSec = config?.d_sec ?? 60;
 
@@ -306,7 +309,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     }
     onRequestConfirm(
       'Thay nước ngay?',
-      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ 1 tiếng mới xả lại được. Tiếp tục?`,
+      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${drainGapSeconds(config?.d_mode) / 3600} tiếng mới xả lại được. Tiếp tục?`,
       () => send('drain', 'DRAIN', { on: true })
     );
   };
@@ -633,7 +636,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               {isMeasuring ? 'Đang đo…' : 'Đo TDS ngay'}
             </span>
             <span className="text-[11px] font-normal opacity-90">
-              {isDraining ? 'Chờ xả xong' : pumpOn ? 'Cập nhật sau 10 giây' : 'Chạy bơm 10 giây để đo'}
+              {isDraining ? 'Chờ xả xong' : pumpOn ? `Cập nhật sau ${tdsRun} giây` : `Chạy bơm ${tdsRun} giây để đo`}
             </span>
           </button>
         </div>
@@ -936,7 +939,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               ? 'Cảm biến lỗi'
               : config?.sens_rt === 1
               ? 'Cập nhật liên tục'
-              : 'Đo khi nước chảy, 30 phút / lần'}
+              : `Đo khi nước chảy, ${formatMinutes(config?.tds_int ?? 30)} / lần`}
           </div>
         </div>
         <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80">
