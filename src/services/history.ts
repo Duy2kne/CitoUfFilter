@@ -21,6 +21,7 @@ export interface FormattedHistoryEvent {
 const SOURCE_MAP: Record<number, string> = {
   0: 'Tự động',
   1: 'Nút trên máy',
+  2: 'Remote',
   3: 'Ứng dụng',
   4: 'Bảo vệ máy',
   5: 'Hết giờ hẹn',
