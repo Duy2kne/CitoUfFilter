@@ -33,31 +33,24 @@ const NumField: React.FC<{
 };
 import {
   Activity,
-  AlertOctagon,
   AlertTriangle,
-  Check,
   ChevronDown,
   ChevronRight,
   Cpu,
   Flame,
   Gauge,
-  HelpCircle,
-  KeyRound,
   Lock,
-  Play,
   RefreshCw,
   RotateCcw,
   Sliders,
   Sparkles,
-  Thermometer,
-  Trash2,
-  Volume2,
   Wifi,
   Zap,
 } from 'lucide-react';
 import {
   formatCurrent,
   formatDuration,
+  PUMP_TYPES,
   UfConfig,
   UfStatus,
 } from '../types/system';
@@ -84,7 +77,7 @@ export const TechTab: React.FC<TechTabProps> = ({
   onClearDemoFaults,
 }) => {
   // Collapsible section open states
-  const [openSection, setOpenSection] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<string | null>('features'); // Mo san: loai bom, van loc, van xa
 
   // Calibration Form States
   const [tdsCalPpm, setTdsCalPpm] = useState<number>(140);
@@ -119,13 +112,33 @@ export const TechTab: React.FC<TechTabProps> = ({
 
     onRequestConfirm(
       'Áp dụng ngưỡng bảo vệ dòng gợi ý?',
-      `Dòng đo hiện tại của bơm: ${formatCurrent(currentPumpMa)}.\n\n• Cảnh báo lõi bẩn (p_dirty): ${suggestedDirty} mA (+30%)\n• Ngắt khẩn cấp quá dòng (p_block): ${suggestedBlock} mA (+100%)\n\nBạn có muốn lưu các giá trị này không?`,
+      `Dòng đo hiện tại của bơm: ${formatCurrent(currentPumpMa)}.\n\n• Cảnh báo lõi bẩn: ${suggestedDirty} mA (+30%)\n• Ngắt khẩn cấp quá dòng: ${suggestedBlock} mA (+100%)\n\nBạn có muốn lưu các giá trị này không?`,
       () => {
         onSendCommand('SET', {
           p_dirty: suggestedDirty,
           p_block: suggestedBlock,
         });
       }
+    );
+  };
+
+  // Loai bom: may doi sang bo nguong cua loai kia + hoc lai dong loi sach
+  const handleSetPumpType = (t: number) => {
+    if (!config || t === config.ptype) return;
+    onRequestConfirm(
+      t === 1 ? 'Đổi sang bơm lớn?' : 'Đổi sang bơm nhỏ?',
+      'Máy sẽ dùng bộ ngưỡng dòng của loại bơm này và học lại dòng lõi sạch ở lượt lọc sau. Chỉ đổi khi máy thật sự lắp loại bơm đó.',
+      () => onSendCommand('SET', { ptype: t })
+    );
+  };
+
+  // Dua 3 nguong cua loai bom dang chon ve mac dinh nha san xuat
+  const handlePumpDefaults = () => {
+    const p = PUMP_TYPES[config?.ptype === 1 ? 1 : 0];
+    onRequestConfirm(
+      `Dùng ngưỡng mặc định của ${p.name.toLowerCase()}?`,
+      `Tối thiểu ${p.p_min} mA · lõi bẩn ${p.p_dirty} mA · ngắt ${p.p_block} mA.`,
+      () => onSendCommand('SET', { p_min: p.p_min, p_dirty: p.p_dirty, p_block: p.p_block })
     );
   };
 
@@ -302,7 +315,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             <Flame className="w-5 h-5 text-cyan-400" />
             <div>
               <div className="text-sm font-bold text-slate-100">1. Cấu hình Thiết bị & Còi báo</div>
-              <div className="text-xs text-slate-400">Van lọc, tự đo TDS, ngưỡng báo động, còi bíp</div>
+              <div className="text-xs text-slate-400">Loại bơm, van lọc, van xả, đo TDS, còi bíp</div>
             </div>
           </div>
           {openSection === 'features' ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
@@ -310,8 +323,44 @@ export const TechTab: React.FC<TechTabProps> = ({
 
         {openSection === 'features' && (
           <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
+            {/* Loai bom: moi loai 1 bo nguong rieng tren may */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="font-semibold text-slate-200">Loại bơm (động cơ) đang lắp</div>
+              <div className="grid grid-cols-2 gap-2">
+                {PUMP_TYPES.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSetPumpType(p.id)}
+                    disabled={!config}
+                    className={`p-3 rounded-xl border text-left transition-all disabled:opacity-40 ${
+                      (config?.ptype ?? 0) === p.id
+                        ? 'bg-cyan-950/60 border-cyan-500 text-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="font-bold">{p.name}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      mặc định {p.p_min} / {p.p_dirty} / {p.p_block} mA
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Máy nhớ riêng 3 ngưỡng dòng (tối thiểu / lõi bẩn / ngắt) cho từng loại bơm. Đổi loại thì máy đổi sang bộ ngưỡng
+                kia và học lại dòng lõi sạch. Đang dùng: {config ? `${config.p_min} / ${config.p_dirty} / ${config.p_block} mA` : '—'}
+                {' '}– chỉnh từng số ở mục 2.
+              </p>
+              <button
+                onClick={handlePumpDefaults}
+                disabled={!config}
+                className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold disabled:opacity-40 transition-all"
+              >
+                Dùng ngưỡng mặc định của loại bơm đang chọn
+              </button>
+            </div>
+
             {/* Có van lọc */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
                 <div className="font-semibold text-slate-200">Có lắp van lọc điện từ</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
@@ -322,12 +371,12 @@ export const TechTab: React.FC<TechTabProps> = ({
                 type="checkbox"
                 checked={config?.valve === 1}
                 onChange={(e) => handleUpdateConfig('valve', e.target.checked ? 1 : 0)}
-                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+                className="w-5 h-5 shrink-0 accent-cyan-500 rounded cursor-pointer"
               />
             </div>
 
             {/* Có van xả (thay nước) */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
                 <div className="font-semibold text-slate-200">Có lắp van xả – thay nước</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
@@ -338,12 +387,12 @@ export const TechTab: React.FC<TechTabProps> = ({
                 type="checkbox"
                 checked={config?.drain === 1}
                 onChange={(e) => handleUpdateConfig('drain', e.target.checked ? 1 : 0)}
-                className="w-5 h-5 accent-orange-500 rounded cursor-pointer"
+                className="w-5 h-5 shrink-0 accent-orange-500 rounded cursor-pointer"
               />
             </div>
 
             {/* Cach do TDS + nhiet do */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
                 <div className="font-semibold text-slate-200">Đo TDS + nhiệt độ liên tục</div>
                 <div className="text-slate-400 mt-0.5 text-[11px]">
@@ -355,13 +404,13 @@ export const TechTab: React.FC<TechTabProps> = ({
                 type="checkbox"
                 checked={config?.sens_rt === 1}
                 onChange={(e) => handleUpdateConfig('sens_rt', e.target.checked ? 1 : 0)}
-                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+                className="w-5 h-5 shrink-0 accent-cyan-500 rounded cursor-pointer"
               />
             </div>
 
             {/* Tự đo TDS khi máy nghỉ */}
             <div
-              className={`flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800 ${
+              className={`flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800 ${
                 config?.sens_rt === 1 ? 'opacity-50' : ''
               }`}
             >
@@ -375,7 +424,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 type="checkbox"
                 checked={config?.tds_auto === 1}
                 onChange={(e) => handleUpdateConfig('tds_auto', e.target.checked ? 1 : 0)}
-                className="w-5 h-5 accent-cyan-500 rounded cursor-pointer"
+                className="w-5 h-5 shrink-0 accent-cyan-500 rounded cursor-pointer"
               />
             </div>
 
@@ -383,7 +432,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
               <div className="flex justify-between">
                 <div>
-                  <div className="font-semibold text-slate-200">Ngưỡng cảnh báo TDS cao (tds_alarm)</div>
+                  <div className="font-semibold text-slate-200">Ngưỡng cảnh báo TDS cao</div>
                   <div className="text-slate-400 text-[11px]">Khi TDS vượt mức này máy sẽ báo E10 (0 = tắt cảnh báo)</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -400,22 +449,22 @@ export const TechTab: React.FC<TechTabProps> = ({
 
             {/* Còi & Bíp */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
                 <span className="text-slate-200 font-medium">Bíp khi bấm phím</span>
                 <input
                   type="checkbox"
                   checked={config?.bz_key === 1}
                   onChange={(e) => handleUpdateConfig('bz_key', e.target.checked ? 1 : 0)}
-                  className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                  className="w-4 h-4 shrink-0 accent-cyan-500 cursor-pointer"
                 />
               </div>
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
                 <span className="text-slate-200 font-medium">Còi hú khi có lỗi</span>
                 <input
                   type="checkbox"
                   checked={config?.bz_alarm === 1}
                   onChange={(e) => handleUpdateConfig('bz_alarm', e.target.checked ? 1 : 0)}
-                  className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                  className="w-4 h-4 shrink-0 accent-cyan-500 cursor-pointer"
                 />
               </div>
             </div>
@@ -442,7 +491,7 @@ export const TechTab: React.FC<TechTabProps> = ({
         {openSection === 'current' && (
           <div className="p-4 border-t border-slate-800 space-y-4 text-xs animate-in fade-in">
             {/* Live readout banner */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-cyan-400" />
                 <span className="text-slate-300">Dòng thực tế lúc này:</span>
@@ -471,7 +520,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-slate-200">Dòng tối thiểu bơm (p_min)</span>
+                  <span className="font-semibold text-slate-200">Dòng tối thiểu bơm</span>
                   <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như bơm không chạy (E1)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -486,8 +535,8 @@ export const TechTab: React.FC<TechTabProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-slate-200">Cảnh báo lõi lọc bẩn (p_dirty)</span>
-                  <p className="text-[11px] text-slate-500">&gt; mức này 5s báo E3; cũng là mốc 0 % độ sạch lõi (0 = tắt)</p>
+                  <span className="font-semibold text-slate-200">Cảnh báo lõi lọc bẩn</span>
+                  <p className="text-[11px] text-slate-500">Dòng trung bình cả lượt lọc &gt; mức này thì báo E3; cũng là mốc 0 % độ sạch lõi (0 = tắt)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <NumField
@@ -501,12 +550,12 @@ export const TechTab: React.FC<TechTabProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-rose-300">Khóa dừng khẩn cấp quá dòng (p_block)</span>
+                  <span className="font-semibold text-rose-300">Khóa dừng khẩn cấp quá dòng</span>
                   <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt bơm khóa máy (E2)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <NumField
-                    value={config?.p_block ?? 700}
+                    value={config?.p_block ?? 1200}
                     step={50}
                     onCommit={(v) => handleUpdateConfig('p_block', v)}
                     className="w-20 bg-slate-950 border border-rose-800 rounded-lg px-2 py-1 text-right font-mono text-rose-300"
@@ -518,7 +567,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 <>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-slate-200">Van lọc: dòng tối thiểu (v_min)</span>
+                  <span className="font-semibold text-slate-200">Van lọc: dòng tối thiểu</span>
                   <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như van không mở (E5)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -533,7 +582,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-rose-300">Van lọc: quá dòng (v_max)</span>
+                  <span className="font-semibold text-rose-300">Van lọc: quá dòng</span>
                   <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt, khóa máy (E6)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -552,7 +601,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 <>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-slate-200">Van xả: dòng tối thiểu (d_vmin)</span>
+                  <span className="font-semibold text-slate-200">Van xả: dòng tối thiểu</span>
                   <p className="text-[11px] text-slate-500">&lt; mức này 2s coi như van xả không mở (E11)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -567,7 +616,7 @@ export const TechTab: React.FC<TechTabProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-rose-300">Van xả: quá dòng (d_vmax)</span>
+                  <span className="font-semibold text-rose-300">Van xả: quá dòng</span>
                   <p className="text-[11px] text-slate-500">&gt; mức này 0.3s ngắt, khóa máy (E12)</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -608,13 +657,13 @@ export const TechTab: React.FC<TechTabProps> = ({
             {/* Live TDS Readings */}
             <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
-                <span className="text-slate-400">TDS tức thời (tds_live):</span>
+                <span className="text-slate-400">TDS tức thời:</span>
                 <div className="text-base font-bold font-mono text-purple-300 mt-0.5">
                   {status ? `${status.tds_live} ppm` : '—'}
                 </div>
               </div>
               <div>
-                <span className="text-slate-400">Hệ số hiệu chuẩn (tds_k):</span>
+                <span className="text-slate-400">Hệ số hiệu chuẩn:</span>
                 <div className="text-base font-bold font-mono text-cyan-300 mt-0.5">
                   {config?.tds_k ? config.tds_k.toFixed(3) : '1.000'}
                 </div>
@@ -805,9 +854,9 @@ export const TechTab: React.FC<TechTabProps> = ({
             </div>
 
             {/* Temperature offset */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
               <div>
-                <div className="font-semibold text-slate-200">Bù sai số nhiệt độ (off_t)</div>
+                <div className="font-semibold text-slate-200">Bù sai số nhiệt độ</div>
                 <div className="text-[11px] text-slate-400">Cân chỉnh đầu dò DS18B20 (-10 đến +10 °C)</div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -1004,7 +1053,7 @@ export const TechTab: React.FC<TechTabProps> = ({
                 </div>
               </div>
               <div>
-                <span className="text-slate-500">Đồng hồ máy (tk):</span>
+                <span className="text-slate-500">Đồng hồ máy:</span>
                 <div className="font-bold mt-0.5">
                   {status?.tk === 1 ? (
                     <span className="text-emerald-400">Đã chuẩn giờ</span>
