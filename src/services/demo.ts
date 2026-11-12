@@ -111,6 +111,7 @@ export class UfDemoDevice {
     c.tds_gap = clamp(Math.round(c.tds_gap), 10, 1440);
     c.tds_try = clamp(Math.round(c.tds_try), 1, 20);
     c.d_warn = clamp(Math.round(c.d_warn), 5, 1440);
+    c.d_auto = c.d_auto ? 1 : 0;
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
     c.tds_z = clamp(c.tds_z, 0, 0.3);
     c.tds_int = clamp(Math.round(c.tds_int), 5, 240);
@@ -164,7 +165,9 @@ export class UfDemoDevice {
     }
 
     // Thay nuoc theo lich (giong firmware: ngay tu 1970 chia het d_days, trong 2 phut sau gio hen)
-    if (this.config.drain === 1 && !this.isDraining && this.config.d_mode === 1) {
+    if (this.config.d_auto === 0) {
+      // Tat thay nuoc tu dong: chi con xa tay
+    } else if (this.config.drain === 1 && !this.isDraining && this.config.d_mode === 1) {
       // Theo TDS: vuot muc tren (va het thoi gian nghi) thi thay nuoc
       // Xa du 5 lan ma TDS van cao -> ngung xa + E13 (giong firmware 1.5.0)
       if (this.status.tds !== null && this.status.tds <= this.config.tds_lo) {
@@ -330,7 +333,7 @@ export class UfDemoDevice {
 
   // Gio lan thay nuoc ke (gio dia phuong, giay tu 1970), 0 = khong lap van xa / chua co gio
   private updateDrainNext(localNow: number) {
-    if (this.config.drain !== 1 || this.status.tk !== 1 || this.config.d_mode !== 0) {
+    if (this.config.drain !== 1 || this.config.d_auto === 0 || this.status.tk !== 1 || this.config.d_mode !== 0) {
       this.status.dnext_t = 0;
       return;
     }
