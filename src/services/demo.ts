@@ -6,6 +6,7 @@
 import {
   DEFAULT_PIN,
   drainGapSeconds,
+  formatMinutes,
   HistoryEventTuple,
   INITIAL_CONFIG,
   INITIAL_STATUS,
@@ -92,7 +93,7 @@ export class UfDemoDevice {
     c.fmin = clamp(Math.round(c.fmin), 5, 60);
     c.day = clamp(Math.round(c.day), 0, 4);
     c.wday = (c.wday & 0x7f) || 0x7f;
-    c.man_min = clamp(Math.round(c.man_min), 5, 240);
+    c.man_min = clamp(Math.round(c.man_min), 5, 1440);
     c.p_block = clamp(c.p_block, 100, 5000);
     c.p_min = clamp(c.p_min, 0, c.p_block - 50);
     if (c.p_dirty) c.p_dirty = clamp(c.p_dirty, c.p_min + 10, c.p_block - 10);
@@ -521,7 +522,7 @@ export class UfDemoDevice {
           this.runTotalSeconds = this.config.man_min * 60;
           this.runRemainingSeconds = this.runTotalSeconds;
           this.addHistoryEvent(7, 3, 1);
-          this.emit({ t: 'ack', a: 'FILTER', ok: true, msg: `Bắt đầu lọc tay ${this.config.man_min} phút` });
+          this.emit({ t: 'ack', a: 'FILTER', ok: true, msg: `Bắt đầu lọc tay ${formatMinutes(this.config.man_min)}` });
         } else {
           this.status.man = 0;
           this.addHistoryEvent(7, 3, 0);
