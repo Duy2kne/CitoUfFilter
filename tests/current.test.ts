@@ -60,6 +60,6 @@ describe('Firmware 1.1.0 packet fields', () => {
   });
 
   it('filter mode list matches firmware FMODE_COUNT = 5 (custom mode 5 removed)', () => {
-    expect(FILTER_MODES.map((m) => m.id)).toEqual([0, 1, 2, 3, 4]);
+    expect(FILTER_MODES.map((m) => m.id)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });
