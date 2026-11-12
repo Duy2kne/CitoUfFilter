@@ -121,6 +121,9 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         day: Number(cfPkt.day ?? 0),
         wday: Number(cfPkt.wday ?? 127),
         man_min: Number(cfPkt.man_min ?? 30),
+        c_hour: Number(cfPkt.c_hour ?? 8),
+        c_min: Number(cfPkt.c_min ?? 0),
+        c_dur: Number(cfPkt.c_dur ?? 0), // 0 = firmware cu hon 1.4.0, chua co che do Tu dat
         valve: (cfPkt.valve ?? 0) as 0 | 1,
         sens_rt: (cfPkt.sens_rt ?? 0) as 0 | 1,
         tds_auto: (cfPkt.tds_auto ?? 0) as 0 | 1,
