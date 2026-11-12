@@ -470,7 +470,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         />
 
         <div className="relative z-10 w-full max-w-[250px] aspect-square flex items-center justify-center">
-          <svg className="w-full h-full -rotate-[135deg]" viewBox={`0 0 ${size} ${size}`}>
+          <svg className="w-full h-full rotate-[135deg]" viewBox={`0 0 ${size} ${size}`}>
             {/* Background Arc Track */}
             <circle
               cx={size / 2}
