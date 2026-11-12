@@ -64,11 +64,14 @@ export interface UfConfig {
   rst: string; // Reset reason (POWERON, SW, PANIC, WDT, BROWNOUT, EXT, ...)
   pend: 0 | 1; // 1 = pending OTA confirmation (60s countdown)
   ap: string; // AP WiFi name for emergency firmware flash
-  fmode: number; // 0: Manual, 1: Daytime 8-12 + 14-17, 2: Evening 19-5, 3: Night 23-5 (default), 4: 24/24
+  fmode: number; // 0: Manual, 1: Daytime 8-12 + 14-17, 2: Evening 19-5, 3: Night 23-5 (default), 4: 24/24, 5: Custom (c_hour / c_min / c_dur)
   fmin: number; // Filter duration each hour (5-60 min)
   day: number; // 0: Every day, 1: Even days, 2: Odd days, 3: Every 3 days, 4: By weekday
   wday: number; // Weekday bitmask (bit0=Sun, bit1=Mon ... bit6=Sat)
   man_min: number; // Manual filter run duration in minutes (5-240)
+  c_hour: number; // Custom mode (fmode 5): start hour 0-23. Firmware 1.4.0+
+  c_min: number; // Custom mode: start minute 0-59
+  c_dur: number; // Custom mode: run length in minutes (1-1440). 0 = firmware older than 1.4.0 (no custom mode)
   valve: 0 | 1; // 1 = valve installed, 0 = no valve
   sens_rt: 0 | 1; // 0 = TDS / temperature sampled every 30 min while water flows, 1 = continuous
   tds_auto: 0 | 1; // Interval mode: machine idle when a sample is due -> run the pump tds_run seconds to measure
@@ -269,6 +272,7 @@ export const FILTER_MODES: { id: number; name: string; hours: string; icon: stri
   { id: 2, name: 'Buổi tối', hours: '19:00 – 05:00', icon: 'moon-night', desc: 'Lọc từ tối tới sáng sớm, qua nửa đêm' },
   { id: 3, name: 'Ban đêm', hours: '23:00 – 05:00', icon: 'moon', desc: 'Khung giờ yên tĩnh ban đêm (chế độ khuyên dùng mặc định)' },
   { id: 4, name: 'Cả ngày', hours: '24/24', icon: 'repeat', desc: 'Giờ nào trong ngày cũng lọc' },
+  { id: 5, name: 'Tự đặt', hours: 'Giờ + số phút tự nhập', icon: 'custom', desc: 'Ngày được lọc: chạy một lượt từ giờ bạn nhập, trong số phút bạn nhập' },
 ];
 
 export const DAY_OPTIONS: { id: number; name: string; desc: string }[] = [
@@ -350,6 +354,11 @@ export function assessCurrent(
   if (mA < min) return { level: 'low', label: 'Dòng quá thấp', tone: 'rose' };
   if (warn > 0 && mA > warn) return { level: 'high', label: 'Cao hơn mức lõi bẩn', tone: 'amber' };
   return { level: 'ok', label: 'Bình thường', tone: 'emerald' };
+}
+
+// "08:05" tu gio + phut
+export function formatHm(hour: number, minute: number): string {
+  return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 }
 
 // Khoang nghi giua 2 lan thay nuoc (giay): che do theo TDS 2 tieng, hen gio 1 tieng (giong filter_drain_gap_s)
@@ -480,6 +489,9 @@ export const INITIAL_CONFIG: UfConfig = {
   day: 0,
   wday: 127,
   man_min: 30,
+  c_hour: 8,
+  c_min: 0,
+  c_dur: 60,
   valve: 0,
   sens_rt: 0,
   tds_auto: 1,
