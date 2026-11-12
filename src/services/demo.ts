@@ -6,6 +6,7 @@
 import {
   DEFAULT_PIN,
   drainGapSeconds,
+  TDS_DRAIN_MAX_TRIES,
   HistoryEventTuple,
   INITIAL_CONFIG,
   INITIAL_STATUS,
@@ -40,6 +41,7 @@ export class UfDemoDevice {
   private drainRemainingSeconds: number = 0;
   private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
   private drainCooldownSeconds: number = 0;   // Xa xong phai nghi moi duoc xa lai: hen gio 1 tieng, theo TDS 2 tieng
+  private tdsTries: number = 0;               // Theo TDS: so lan da tu xa lien tiep (5 lan khong giam -> E13)
   private runElapsedSeconds: number = 0;
   private pumpWasOn: boolean = false;
   private avgSum: number = 0;                 // Tong dong bom cac giay da lay mau cua luot dang chay
@@ -104,6 +106,7 @@ export class UfDemoDevice {
     c.d_mode = clamp(Math.round(c.d_mode), 0, 1);
     c.tds_hi = clamp(Math.round(c.tds_hi), 30, 2000);
     c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
+    c.tds_gap = clamp(Math.round(c.tds_gap), 10, 1440);
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
     c.tds_z = clamp(c.tds_z, 0, 0.3);
     c.tds_int = clamp(Math.round(c.tds_int), 5, 240);
@@ -159,9 +162,21 @@ export class UfDemoDevice {
     // Thay nuoc theo lich (giong firmware: ngay tu 1970 chia het d_days, trong 2 phut sau gio hen)
     if (this.config.drain === 1 && !this.isDraining && this.config.d_mode === 1) {
       // Theo TDS: vuot muc tren (va het thoi gian nghi) thi thay nuoc
-      if (this.drainCooldownSeconds === 0 && this.status.tds !== null && this.status.tds > this.config.tds_hi) {
-        this.startDrain(0, 2);
+      // Xa du 5 lan ma TDS van cao -> ngung xa + E13 (giong firmware 1.5.0)
+      if (this.status.tds !== null && this.status.tds <= this.config.tds_lo) {
+        this.tdsTries = 0;
+        this.status.err &= ~0x1000;
+        this.status.wrn &= ~0x1000;
+      } else if (this.drainCooldownSeconds === 0 && this.status.tds !== null && this.status.tds > this.config.tds_hi) {
+        if (this.tdsTries >= TDS_DRAIN_MAX_TRIES) {
+          this.status.err |= 0x1000;
+          this.status.wrn |= 0x1000;
+        } else if (!(this.status.err & 0x1000)) {
+          this.tdsTries++;
+          this.startDrain(0, 2);
+        }
       }
+      this.status.dtry = this.tdsTries;
     } else if (this.config.drain === 1 && !this.isDraining && this.status.tk === 1) {
       const day = Math.floor(localNow / 86400);
       const at = day * 86400 + this.config.d_hour * 3600 + this.config.d_min * 60;
@@ -183,7 +198,7 @@ export class UfDemoDevice {
       this.status.run = { tot: this.config.d_sec, left: this.status.dleft };
       if (this.drainRemainingSeconds <= 0) {
         this.isDraining = false;
-        this.drainCooldownSeconds = drainGapSeconds(this.config.d_mode);
+        this.drainCooldownSeconds = drainGapSeconds(this.config.d_mode, this.config.tds_gap);
         this.status.dcool = this.drainCooldownSeconds;
         // Thay nuoc xong: TDS giam (de che do theo TDS dung lai khi dat muc duoi)
         if (this.status.tds !== null) this.status.tds = Math.max(90, Math.round(this.status.tds * 0.8));
@@ -570,7 +585,10 @@ export class UfDemoDevice {
 
       case 'CLEAR_FAULTS':
         // Clears E1, E2, E5, E6, E11, E12 (mask 0xC33)
-        this.status.err &= ~0xc33;
+        this.status.err &= ~0x1c33; // + E13
+        this.status.wrn &= ~0x1000;
+        this.tdsTries = 0;
+        this.status.dtry = 0;
         this.addHistoryEvent(6, 3, 0);
         this.emit({ t: 'ack', a: 'CLEAR_FAULTS', ok: true, msg: 'Đã xóa lỗi' });
         this.emit({ t: 'st', ...this.status });
