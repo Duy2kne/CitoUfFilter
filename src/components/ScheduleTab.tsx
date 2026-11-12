@@ -93,6 +93,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [tdsGap, setTdsGap] = useState<number>(120);
   const [tdsTry, setTdsTry] = useState<number>(5);
   const [dWarn, setDWarn] = useState<number>(60);
+  const [dAuto, setDAuto] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -116,6 +117,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setTdsGap(config.tds_gap > 0 ? config.tds_gap : 120);
     setTdsTry(config.tds_try > 0 ? config.tds_try : 5);
     setDWarn(config.d_warn > 0 ? config.d_warn : 60);
+    setDAuto(config.d_auto === 0 ? 0 : 1);
   }, [
     config?.fmode,
     config?.fmin,
@@ -135,6 +137,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.tds_gap,
     config?.tds_try,
     config?.d_warn,
+    config?.d_auto,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -166,6 +169,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
       if (config.tds_gap > 0 && tdsGap !== config.tds_gap) diff.tds_gap = tdsGap; // Firmware 1.5.0 tro len
       if (config.tds_try > 0 && tdsTry !== config.tds_try) diff.tds_try = tdsTry; // Firmware 1.5.1 tro len
       if (config.d_warn > 0 && dWarn !== config.d_warn) diff.d_warn = dWarn; // Firmware 1.6.0 tro len
+      if (config.d_auto >= 0 && dAuto !== config.d_auto) diff.d_auto = dAuto; // Firmware 1.6.4 tro len
     }
     return diff;
   };
@@ -175,7 +179,11 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const tdsGapSupported = !config || config.tds_gap > 0;
   const tdsTrySupported = !config || config.tds_try > 0;
   const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi && tdsGap >= 10 && tdsGap <= 1440;
+  const clampMan = (m: number) => Math.min(1440, Math.max(5, m)); // Loc tay: 5 phut .. 24 gio (Firmware 1.6.3)
+  const clampCDur = (m: number) => Math.min(1440, Math.max(1, m)); // Tu dat: 1 phut .. 24 gio
   const clampDSec = (s: number) => Math.min(1800, Math.max(5, s));
+  const dAutoSupported = !config || config.d_auto >= 0; // Firmware 1.6.4: bat / tat thay nuoc tu dong
+  const autoOff = dAuto === 0;
   const dWarnSupported = !config || config.d_warn > 0; // Firmware 1.6.0: xa tay khong gioi han, qua d_warn phut -> E14
   const clampDWarn = (m: number) => Math.min(1440, Math.max(5, m));
   const drainLenText =
@@ -200,7 +208,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
 
   const handleSave = async () => {
     if (!hasChanges) return;
-    if (config?.drain === 1 && dMode === 1 && !tdsLevelsOk) return;
+    if (config?.drain === 1 && !autoOff && dMode === 1 && !tdsLevelsOk) return;
     if (isCustom && !cDurOk) return;
     try {
       setIsSaving(true);
@@ -481,16 +489,25 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Thời gian lọc (phút)</label>
-              <input
-                type="number"
-                min={1}
-                max={1440}
-                step={1}
-                value={cDur || ''}
-                onChange={(e) => setCDur(Math.max(0, Math.round(Number(e.target.value) || 0)))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
-              />
+              <label className="block text-slate-400 mb-1">Thời gian lọc</label>
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <NumBox
+                  value={Math.floor(cDur / 60)}
+                  min={0}
+                  max={24}
+                  label="Thời gian lọc: giờ"
+                  onChange={(h) => setCDur(clampCDur(h * 60 + (cDur % 60)))}
+                />
+                <span>giờ</span>
+                <NumBox
+                  value={cDur % 60}
+                  min={0}
+                  max={59}
+                  label="Thời gian lọc: phút"
+                  onChange={(m) => setCDur(clampCDur(Math.floor(cDur / 60) * 60 + m))}
+                />
+                <span>phút</span>
+              </span>
             </div>
           </div>
           {cDurOk ? (
@@ -530,16 +547,16 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             type="range"
             min={5}
             max={60}
-            step={5}
+            step={1}
             value={fmin}
             onChange={(e) => setFmin(Number(e.target.value))}
             className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
           />
           <div className="flex justify-between text-[10px] font-mono text-slate-500">
             <span>5 ph</span>
-            <span>15 ph</span>
-            <span>30 ph (chuẩn)</span>
-            <span>45 ph</span>
+            <span>19 ph</span>
+            <span>32 ph</span>
+            <span>46 ph</span>
             <span>60 ph (liên tục)</span>
           </div>
         </div>
@@ -566,29 +583,47 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
               4. Thời lượng khi bấm &quot;Lọc ngay&quot;
             </label>
-            <p className="text-xs text-slate-400 mt-0.5">Số phút bơm chạy cho mỗi lượt lọc thủ công</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Bơm chạy bao lâu cho mỗi lượt lọc thủ công: nhập giờ + phút (5 phút – 24 giờ), hoặc kéo thanh trượt (cùng một giá trị)
+            </p>
           </div>
           <div className="text-right">
-            <NumBox value={manMin} min={5} max={240} label="Số phút lọc tay" onChange={setManMin} />
-            <span className="text-xs font-semibold text-slate-400 ml-1">phút</span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+              <NumBox
+                value={Math.floor(manMin / 60)}
+                min={0}
+                max={24}
+                label="Lọc tay: giờ"
+                onChange={(h) => setManMin(clampMan(h * 60 + (manMin % 60)))}
+              />
+              <span>giờ</span>
+              <NumBox
+                value={manMin % 60}
+                min={0}
+                max={59}
+                label="Lọc tay: phút"
+                onChange={(m) => setManMin(clampMan(Math.floor(manMin / 60) * 60 + m))}
+              />
+              <span>phút</span>
+            </span>
           </div>
         </div>
 
         <input
           type="range"
           min={5}
-          max={240}
-          step={5}
+          max={1440}
+          step={1}
           value={manMin}
           onChange={(e) => setManMin(Number(e.target.value))}
           className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
         />
         <div className="flex justify-between text-[10px] font-mono text-slate-500">
           <span>5 ph</span>
-          <span>30 ph</span>
-          <span>60 ph</span>
-          <span>120 ph</span>
-          <span>240 ph</span>
+          <span>6 giờ</span>
+          <span>12 giờ</span>
+          <span>18 giờ</span>
+          <span>24 giờ</span>
         </div>
       </div>
 
@@ -610,6 +645,36 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
           </div>
         ) : (
           <>
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div className="text-sm font-bold text-slate-100">Tự động thay nước</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {!dAutoSupported
+                    ? 'Máy đang chạy firmware cũ: luôn bật. Nạp Firmware 1.6.4 để tắt được.'
+                    : autoOff
+                    ? 'Đang tắt: máy không tự xả. Nút "Thay nước ngay" vẫn dùng được.'
+                    : 'Đang bật: máy tự xả theo hẹn giờ hoặc theo TDS bên dưới.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!autoOff}
+                aria-label="Bật tắt thay nước tự động"
+                disabled={!dAutoSupported}
+                onClick={() => setDAuto(autoOff ? 1 : 0)}
+                className={`relative w-14 h-8 rounded-full shrink-0 transition-colors disabled:opacity-50 ${
+                  autoOff ? 'bg-slate-700' : 'bg-orange-500'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    autoOff ? '' : 'translate-x-6'
+                  }`}
+                />
+              </button>
+            </div>
+            <div className={`space-y-4 ${autoOff ? 'opacity-40 pointer-events-none' : ''}`}>
             <div className="grid grid-cols-2 gap-2">
               {[
                 { id: 0, name: 'Hẹn giờ', desc: 'Cứ mấy ngày xả một lần vào giờ cố định' },
@@ -784,17 +849,18 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 type="range"
                 min={5}
                 max={1800}
-                step={5}
+                step={1}
                 value={dSec}
                 onChange={(e) => setDSec(Number(e.target.value))}
                 className="w-full accent-orange-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
               />
               <div className="flex justify-between text-[10px] font-mono text-slate-500">
                 <span>5 s</span>
-                <span>5 ph</span>
-                <span>15 ph</span>
+                <span>10 ph</span>
+                <span>20 ph</span>
                 <span>30 ph</span>
               </div>
+            </div>
             </div>
             <div className="pt-3 border-t border-slate-800 text-xs space-y-1.5">
               <div className="text-slate-300">Thay nước tay (nút &quot;Thay nước ngay&quot;): cảnh báo khi xả liên tục quá</div>
