@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Calendar,
+  CalendarClock,
   Check,
   Clock,
   Hand,
@@ -18,6 +19,8 @@ import {
 import {
   DAY_OPTIONS,
   FILTER_MODES,
+  formatHm,
+  formatMinutes,
   UfConfig,
   WEEKDAYS,
 } from '../types/system';
@@ -35,6 +38,9 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [day, setDay] = useState<number>(0);
   const [wday, setWday] = useState<number>(127);
   const [manMin, setManMin] = useState<number>(30);
+  const [cHour, setCHour] = useState<number>(8);
+  const [cMin, setCMin] = useState<number>(0);
+  const [cDur, setCDur] = useState<number>(60);
   const [dDays, setDDays] = useState<number>(3);
   const [dHour, setDHour] = useState<number>(12);
   const [dMin, setDMin] = useState<number>(0);
@@ -52,6 +58,9 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setDay(config.day);
     setWday(config.wday);
     setManMin(config.man_min);
+    setCHour(config.c_hour);
+    setCMin(config.c_min);
+    setCDur(config.c_dur > 0 ? config.c_dur : 60);
     setDDays(config.d_days);
     setDHour(config.d_hour);
     setDMin(config.d_min);
@@ -65,6 +74,9 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.day,
     config?.wday,
     config?.man_min,
+    config?.c_hour,
+    config?.c_min,
+    config?.c_dur,
     config?.d_days,
     config?.d_hour,
     config?.d_min,
@@ -83,6 +95,12 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     if (day !== config.day) diff.day = day;
     if (wday !== config.wday) diff.wday = wday;
     if (manMin !== config.man_min) diff.man_min = manMin;
+    // Che do Tu dat (may cu hon Firmware 1.4.0 khong biet 3 khoa nay -> khong gui)
+    if (config.c_dur > 0) {
+      if (cHour !== config.c_hour) diff.c_hour = cHour;
+      if (cMin !== config.c_min) diff.c_min = cMin;
+      if (cDur !== config.c_dur) diff.c_dur = cDur;
+    }
     if (config.drain === 1) {
       if (dDays !== config.d_days) diff.d_days = dDays;
       if (dHour !== config.d_hour) diff.d_hour = dHour;
@@ -101,6 +119,11 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const modifiedKeys = getModifiedKeys();
   const hasChanges = Object.keys(modifiedKeys).length > 0;
   const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi;
+  const customSupported = !config || config.c_dur > 0; // Firmware 1.4.0 tro len
+  const isCustom = fmode === 5;
+  const cDurOk = cDur >= 1 && cDur <= 1440;
+  const cEndTotal = cHour * 60 + cMin + cDur; // Phut ket thuc tinh tu 00:00 ngay bat dau
+  const cEndText = `${formatHm(Math.floor(cEndTotal / 60) % 24, cEndTotal % 60)}${cEndTotal >= 1440 ? ' hôm sau' : ''}`;
 
   // Doi che do loc: phut / gio ve mac dinh cua che do do (giong may), nguoi dung chinh lai duoc
   const MODE_DEFAULT_FMIN: Record<number, number> = { 1: 20, 2: 30, 3: 30, 4: 10 };
@@ -113,6 +136,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const handleSave = async () => {
     if (!hasChanges) return;
     if (config?.drain === 1 && dMode === 1 && !tdsLevelsOk) return;
+    if (isCustom && !cDurOk) return;
     try {
       setIsSaving(true);
       await onSendCommand('SET', modifiedKeys);
@@ -139,6 +163,9 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     fmin,
     day,
     wday,
+    c_hour: cHour,
+    c_min: cMin,
+    c_dur: cDur,
   });
 
   const currentHour = now.getHours();
@@ -157,6 +184,8 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         return <Moon className="w-5 h-5 text-cyan-400" />;
       case 'repeat':
         return <Repeat className="w-5 h-5 text-emerald-400" />;
+      case 'custom':
+        return <CalendarClock className="w-5 h-5 text-fuchsia-400" />;
       default:
         return <Calendar className="w-5 h-5" />;
     }
@@ -255,12 +284,16 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
           {FILTER_MODES.map((mode) => {
             const isSelected = fmode === mode.id;
+            const needsNewFw = mode.id === 5 && !customSupported;
             return (
               <button
                 key={mode.id}
                 type="button"
+                disabled={needsNewFw}
                 onClick={() => handlePickMode(mode.id)}
                 className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
+                  needsNewFw ? 'opacity-50 cursor-not-allowed ' : ''
+                }${
                   isSelected
                     ? 'bg-slate-900 border-cyan-500 shadow-lg shadow-cyan-950/40 text-slate-100'
                     : 'bg-slate-900/60 border-slate-800/90 hover:border-slate-700 text-slate-300'
@@ -287,15 +320,72 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 <div className="text-xs font-semibold text-cyan-400 font-mono mb-1">
                   {mode.hours}
                 </div>
-                <div className="text-[11px] text-slate-400 leading-normal">{mode.desc}</div>
+                <div className="text-[11px] text-slate-400 leading-normal">
+                  {needsNewFw ? 'Cần nạp Firmware 1.4.0 trở lên cho máy mới dùng được chế độ này' : mode.desc}
+                </div>
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* 2 (che do Tu dat). Gio bat dau + so phut chay, nhap tay */}
+      {isCustom && (
+        <div className="p-5 rounded-3xl bg-slate-900/80 border border-fuchsia-800/50 space-y-4 animate-in fade-in">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              2. Giờ lọc và thời gian lọc (tự nhập)
+            </label>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Vào ngày được lọc (chọn ở mục 3), máy chạy một lượt từ giờ bắt đầu, đủ số phút thì nghỉ tới ngày lọc kế.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label className="block text-slate-400 mb-1">Giờ bắt đầu</label>
+              <input
+                type="time"
+                value={formatHm(cHour, cMin)}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(':').map(Number);
+                  if (Number.isFinite(h) && Number.isFinite(m)) {
+                    setCHour(Math.min(23, Math.max(0, h)));
+                    setCMin(Math.min(59, Math.max(0, m)));
+                  }
+                }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Thời gian lọc (phút)</label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                step={1}
+                value={cDur || ''}
+                onChange={(e) => setCDur(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+              />
+            </div>
+          </div>
+          {cDurOk ? (
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-fuchsia-400 shrink-0 mt-0.5" />
+              <span>
+                Máy lọc từ <strong className="text-cyan-300">{formatHm(cHour, cMin)}</strong> đến{' '}
+                <strong className="text-cyan-300">{cEndText}</strong> ({formatMinutes(cDur)}). Máy phải có giờ (gửi giờ điện
+                thoại hoặc WiFi nhà) thì lịch này mới chạy.
+              </span>
+            </div>
+          ) : (
+            <p className="text-[11px] text-rose-300">Thời gian lọc phải từ 1 đến 1440 phút (24 tiếng).</p>
+          )}
+        </div>
+      )}
+
       {/* 2. Minutes Per Hour Slider */}
-      <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+      <div hidden={isCustom} className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
