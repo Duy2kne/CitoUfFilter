@@ -70,7 +70,7 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
     expect(lastConfig().fmode).toBe(3);
   });
 
-  it('manual water change: no time limit, stops on command, then a 1 hour cooldown blocks the next DRAIN', () => {
+  it('manual water change: no time limit, stops on command, and can be started again during the rest time', () => {
     dev.handleCommand('SET', { d_sec: 5 });
     dev.handleCommand('DRAIN', { on: true });
     expect(lastAck().ok).toBe(true);
@@ -84,10 +84,12 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
     dev.handleCommand('DRAIN', { on: false });
     vi.advanceTimersByTime(1000);
     expect(lastStatus().st).not.toBe(6);
-    expect(lastStatus().dcool).toBeGreaterThan(3500);
+    expect(lastStatus().dcool).toBeGreaterThan(3500); // nghi 1 tieng: chi chan xa tu dong
 
     dev.handleCommand('DRAIN', { on: true });
-    expect(lastAck().ok).toBe(false);
+    expect(lastAck().ok).toBe(true);
+    vi.advanceTimersByTime(2000);
+    expect(lastStatus().st).toBe(6);
   });
 
   it('MEASURE runs the pump for 10 seconds and is refused while draining', () => {
