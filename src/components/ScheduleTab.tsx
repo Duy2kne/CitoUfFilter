@@ -24,7 +24,48 @@ import {
   UfConfig,
   WEEKDAYS,
 } from '../types/system';
+
 import { generate24HourSchedule } from '../services/scheduleCalculator';
+
+// O nhap so di kem thanh truot: go tu do; roi khoi o / bam Enter thi ep ve [min, max]
+const NumBox: React.FC<{
+  value: number;
+  min: number;
+  max: number;
+  label: string;
+  onChange: (v: number) => void;
+  tone?: string;
+}> = ({ value, min, max, label, onChange, tone = 'text-cyan-400' }) => {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const n = Math.round(Number(text));
+    const v = text.trim() !== '' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : value;
+    onChange(v);
+    setText(String(v));
+  };
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      aria-label={label}
+      min={min}
+      max={max}
+      step={1}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = Number(e.target.value);
+        if (e.target.value !== '' && Number.isInteger(n) && n >= min && n <= max) onChange(n);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+      className={`w-[4.5rem] bg-slate-950 border border-slate-700 focus:border-cyan-500 outline-none rounded-xl px-2 py-1 text-right text-xl font-black font-mono ${tone}`}
+    />
+  );
+};
 
 interface ScheduleTabProps {
   config: UfConfig | null;
@@ -48,6 +89,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [dMode, setDMode] = useState<number>(0);
   const [tdsHi, setTdsHi] = useState<number>(250);
   const [tdsLo, setTdsLo] = useState<number>(150);
+  const [tdsGap, setTdsGap] = useState<number>(120);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -68,6 +110,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setDMode(config.d_mode);
     setTdsHi(config.tds_hi);
     setTdsLo(config.tds_lo);
+    setTdsGap(config.tds_gap > 0 ? config.tds_gap : 120);
   }, [
     config?.fmode,
     config?.fmin,
@@ -84,6 +127,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.d_mode,
     config?.tds_hi,
     config?.tds_lo,
+    config?.tds_gap,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -112,13 +156,16 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         diff.tds_hi = tdsHi;
         diff.tds_lo = tdsLo;
       }
+      if (config.tds_gap > 0 && tdsGap !== config.tds_gap) diff.tds_gap = tdsGap; // Firmware 1.5.0 tro len
     }
     return diff;
   };
 
   const modifiedKeys = getModifiedKeys();
   const hasChanges = Object.keys(modifiedKeys).length > 0;
-  const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi;
+  const tdsGapSupported = !config || config.tds_gap > 0;
+  const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi && tdsGap >= 10 && tdsGap <= 1440;
+  const clampDSec = (s: number) => Math.min(1800, Math.max(5, s));
   const customSupported = !config || config.c_dur > 0; // Firmware 1.4.0 tro len
   const isCustom = fmode === 5;
   const cDurOk = cDur >= 1 && cDur <= 1440;
@@ -396,7 +443,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             </p>
           </div>
           <div className="text-right">
-            <span className="text-2xl font-black font-mono text-cyan-400">{fmin}</span>
+            <NumBox value={fmin} min={5} max={60} label="Số phút lọc mỗi giờ" onChange={setFmin} />
             <span className="text-xs font-semibold text-slate-400 ml-1">phút/giờ</span>
           </div>
         </div>
@@ -504,7 +551,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             <p className="text-xs text-slate-400 mt-0.5">Số phút bơm chạy cho mỗi lượt lọc thủ công</p>
           </div>
           <div className="text-right">
-            <span className="text-2xl font-black font-mono text-cyan-400">{manMin}</span>
+            <NumBox value={manMin} min={5} max={240} label="Số phút lọc tay" onChange={setManMin} />
             <span className="text-xs font-semibold text-slate-400 ml-1">phút</span>
           </div>
         </div>
@@ -535,7 +582,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
           </label>
           <p className="text-xs text-slate-400 mt-0.5">
             Đóng van lọc, mở van xả rồi bơm nước ra ngoài. Xả được ưu tiên hơn lọc; xả xong máy lọc tiếp theo lịch.
-            Mỗi lần xả xong máy nghỉ 1 tiếng (hẹn giờ) hoặc 2 tiếng (theo TDS) mới xả lại.
+            Mỗi lần xả xong máy nghỉ 1 tiếng (hẹn giờ) hoặc số phút bạn đặt (theo TDS) mới xả lại.
           </p>
         </div>
         {config?.drain !== 1 ? (
@@ -594,14 +641,32 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                     />
                   </div>
                 </div>
+                <div className="text-xs">
+                  <label className="block text-slate-400 mb-1">Hai lần xả cách nhau (phút)</label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={1440}
+                    step={5}
+                    disabled={!tdsGapSupported}
+                    value={tdsGap || ''}
+                    onChange={(e) => setTdsGap(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100 disabled:opacity-50"
+                  />
+                  {!tdsGapSupported && (
+                    <p className="text-[11px] text-slate-500 mt-1">Máy đang chạy firmware cũ: cố định 2 tiếng. Nạp Firmware 1.5.0 để chỉnh.</p>
+                  )}
+                </div>
                 {!tdsLevelsOk && (
                   <p className="text-[11px] text-rose-300">
-                    Mức dưới phải từ 20 ppm, mức trên tối đa 2000 ppm và mức dưới thấp hơn mức trên ít nhất 10 ppm.
+                    Mức dưới phải từ 20 ppm, mức trên tối đa 2000 ppm, mức dưới thấp hơn mức trên ít nhất 10 ppm và khoảng
+                    cách giữa hai lần xả từ 10 đến 1440 phút.
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500">
-                  Máy đo TDS sau mỗi lần xả: còn cao hơn mức dưới thì xả tiếp, đạt mức dưới thì ngừng. Hai lần xả cách nhau ít nhất
-                  2 tiếng để không thay liên tục làm hết nước (Firmware 1.3.0; bản cũ hơn là 1 tiếng).
+                  Khi bật chế độ này máy đo TDS liên tục. Mỗi lần xả chạy đúng &quot;Thời gian xả mỗi lần&quot; bên dưới, xong
+                  nghỉ {formatMinutes(tdsGap)} rồi xem lại TDS: còn cao hơn mức dưới thì xả tiếp, đạt mức dưới thì ngừng. Xả đủ 5
+                  lần liên tiếp mà TDS vẫn chưa xuống mức dưới thì máy ngừng xả và báo E13 (Firmware 1.5.0).
                 </p>
               </div>
             )}
@@ -655,8 +720,25 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-300">Thời gian xả mỗi lần</span>
-                <span className="text-xl font-black font-mono text-orange-400">
-                  {Math.floor(dSec / 60).toString().padStart(2, '0')}:{(dSec % 60).toString().padStart(2, '0')}
+                <span className="flex items-center gap-1.5 text-slate-400">
+                  <NumBox
+                    value={Math.floor(dSec / 60)}
+                    min={0}
+                    max={30}
+                    label="Thời gian xả: phút"
+                    tone="text-orange-400"
+                    onChange={(m) => setDSec(clampDSec(m * 60 + (dSec % 60)))}
+                  />
+                  <span>phút</span>
+                  <NumBox
+                    value={dSec % 60}
+                    min={0}
+                    max={59}
+                    label="Thời gian xả: giây"
+                    tone="text-orange-400"
+                    onChange={(s) => setDSec(clampDSec(Math.floor(dSec / 60) * 60 + s))}
+                  />
+                  <span>giây</span>
                 </span>
               </div>
               <input
