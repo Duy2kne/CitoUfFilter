@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { applyPacket, INITIAL_APP_STATE } from '../src/services/packetParser';
-import { drainGapSeconds, isSensorRealtime, parseErrors, UfIncomingPacket } from '../src/types/system';
+import { drainGapSeconds, isSensorRealtime, parseErrors, tdsMaxTries, UfIncomingPacket } from '../src/types/system';
 
 // Firmware 1.5.0: thay nuoc theo TDS - khoang nghi cai duoc, TDS lien tuc, 5 lan khong giam -> E13
 describe('Water change by TDS (Firmware 1.5.0)', () => {
@@ -33,6 +33,15 @@ describe('Water change by TDS (Firmware 1.5.0)', () => {
     expect(isSensorRealtime({ sens_rt: 0, drain: 0, d_mode: 1, tds_gap: 120 })).toBe(false);
     expect(isSensorRealtime({ sens_rt: 1, drain: 0, d_mode: 0, tds_gap: 0 })).toBe(true);
     expect(isSensorRealtime(null)).toBe(false);
+  });
+
+  it('max water changes in a row follows tds_try, older firmware stays at 5', () => {
+    const cf = applyPacket(INITIAL_APP_STATE, { t: 'cf', tds_try: 8 } as unknown as UfIncomingPacket).config;
+    expect(tdsMaxTries(cf)).toBe(8);
+    const old = applyPacket(INITIAL_APP_STATE, { t: 'cf' } as unknown as UfIncomingPacket).config;
+    expect(old?.tds_try).toBe(0);
+    expect(tdsMaxTries(old)).toBe(5);
+    expect(tdsMaxTries(null)).toBe(5);
   });
 
   it('E13 is a warning (bit 12), not a locking fault', () => {
