@@ -24,6 +24,7 @@ import {
   assessCurrent,
   CurrentAssessment,
   FILTER_MODES,
+  formatHm,
   formatCurrent,
   drainGapSeconds,
   formatDuration,
@@ -570,7 +571,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           {/* Scale labels at arc endpoints */}
           <div className="absolute bottom-3 left-5 text-[10px] font-mono text-slate-500">0 ph</div>
           <div className="absolute bottom-3 right-5 text-[10px] font-mono text-slate-500">
-            {isFiltering ? Math.max(1, Math.round(totalRunSecs / 60)) : config?.fmin || 30} ph
+            {isFiltering ? Math.max(1, Math.round(totalRunSecs / 60)) : (config?.fmode === 5 && config.c_dur) || config?.fmin || 30} ph
           </div>
         </div>
       </div>
@@ -828,6 +829,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               {config
                 ? config.fmode === 0
                   ? 'Không tự chạy – chạm để chọn lịch →'
+                  : config.fmode === 5
+                  ? `Lọc ${config.c_dur} phút từ ${formatHm(config.c_hour, config.c_min)} – chạm để đổi →`
                   : `Lọc ${config.fmin} phút mỗi giờ – chạm để đổi →`
                 : 'Chạm để đổi lịch lọc →'}
             </div>
@@ -879,6 +882,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                     ? 'Chế độ thủ công – chỉ lọc khi bấm "Lọc ngay"'
                     : hasLockError
                     ? 'Đang có lỗi khóa máy'
+                    : config?.fmode === 5 && status.tk !== 1
+                    ? 'Máy chưa có giờ – gửi giờ điện thoại thì lịch tự đặt mới chạy'
                     : 'Chưa có lịch'}
                 </div>
               </div>
