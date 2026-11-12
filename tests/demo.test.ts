@@ -70,7 +70,7 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
     expect(lastConfig().fmode).toBe(3);
   });
 
-  it('water change: runs d_sec, then a 1 hour cooldown blocks the next DRAIN', () => {
+  it('manual water change: no time limit, stops on command, then a 1 hour cooldown blocks the next DRAIN', () => {
     dev.handleCommand('SET', { d_sec: 5 });
     dev.handleCommand('DRAIN', { on: true });
     expect(lastAck().ok).toBe(true);
@@ -79,6 +79,10 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
     expect(lastStatus().d[1]).toBe(1);
 
     vi.advanceTimersByTime(6000);
+    expect(lastStatus().st).toBe(6); // xa tay: qua d_sec van xa
+    expect(lastStatus().dman).toBe(1);
+    dev.handleCommand('DRAIN', { on: false });
+    vi.advanceTimersByTime(1000);
     expect(lastStatus().st).not.toBe(6);
     expect(lastStatus().dcool).toBeGreaterThan(3500);
 
