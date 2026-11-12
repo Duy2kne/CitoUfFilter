@@ -583,15 +583,7 @@ export class UfDemoDevice {
           this.emit({ t: 'ack', a: 'DRAIN', ok: false, msg: 'Máy đang tắt / có lỗi khóa' });
           return;
         }
-        if (this.drainCooldownSeconds > 0 && !this.isDraining) {
-          this.emit({
-            t: 'ack',
-            a: 'DRAIN',
-            ok: false,
-            msg: `Vừa thay nước - chờ thêm ${Math.ceil(this.drainCooldownSeconds / 60)} phút mới thay lại được`,
-          });
-          return;
-        }
+        // Firmware 1.6.2: xa tay khong bi chan boi thoi gian nghi (chi xa tu dong moi phai cho)
         if (!this.isDraining) this.startDrain(3, 1, true);
         this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đang thay nước' });
         this.emit({ t: 'st', ...this.status });
