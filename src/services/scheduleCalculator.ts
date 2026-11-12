@@ -5,7 +5,26 @@
 
 import { UfConfig } from '../types/system';
 
-export type ScheduleConfig = Pick<UfConfig, 'fmode' | 'fmin' | 'day' | 'wday'>;
+export type ScheduleConfig = Pick<UfConfig, 'fmode' | 'fmin' | 'day' | 'wday'> &
+  Partial<Pick<UfConfig, 'c_hour' | 'c_min' | 'c_dur'>>;
+
+export const CUSTOM_MODE = 5;
+
+/** Custom mode: the run that starts on the calendar day of `date` (same as firmware _cus_start). */
+export function customRunOfDay(date: Date, config: ScheduleConfig): { start: Date; end: Date } {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), config.c_hour ?? 8, config.c_min ?? 0, 0, 0);
+  return { start, end: new Date(start.getTime() + Math.max(1, config.c_dur ?? 60) * 60000) };
+}
+
+/** Custom mode: the run that contains `time` (today's, or yesterday's run still going past midnight), else null. */
+export function customRunAt(time: Date, config: ScheduleConfig): { start: Date; end: Date } | null {
+  for (let k = 0; k < 2; k++) {
+    const day = new Date(time.getFullYear(), time.getMonth(), time.getDate() - k);
+    const run = customRunOfDay(day, config);
+    if (time >= run.start && time < run.end && isDayActive(run.start, config.day, config.wday)) return run;
+  }
+  return null;
+}
 
 /**
  * Returns whether a given hour (0..23) is inside the mode's daily window (same table as firmware
@@ -77,6 +96,7 @@ export function isDayActive(date: Date, dayRule: number, wdayMask: number): bool
  */
 export function isFilterActiveAt(time: Date, config: ScheduleConfig): boolean {
   if (config.fmode === 0) return false;
+  if (config.fmode === CUSTOM_MODE) return customRunAt(time, config) !== null;
 
   const hour = time.getHours();
   const minute = time.getMinutes();
@@ -114,6 +134,34 @@ export interface HourScheduleSlot {
  */
 export function generate24HourSchedule(targetDate: Date, config: ScheduleConfig): HourScheduleSlot[] {
   const slots: HourScheduleSlot[] = [];
+
+  if (config.fmode === CUSTOM_MODE) {
+    // So phut cua tung gio nam trong luot hom nay + luot hom qua keo qua nua dem
+    const runs = [0, 1]
+      .map((k) => customRunOfDay(new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() - k), config))
+      .filter((r) => isDayActive(r.start, config.day, config.wday));
+    for (let hour = 0; hour < 24; hour++) {
+      const h0 = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), hour).getTime();
+      let ms = 0;
+      let prev = false;
+      runs.forEach((r) => {
+        const part = Math.min(h0 + 3600000, r.end.getTime()) - Math.max(h0, r.start.getTime());
+        if (part > 0) {
+          ms += part;
+          if (r.start.getDate() !== targetDate.getDate()) prev = true;
+        }
+      });
+      const minutes = Math.min(60, Math.round(ms / 60000));
+      slots.push({
+        hour,
+        isActive: minutes > 0,
+        activeMinutes: minutes,
+        belongsToPrevDay: prev,
+        governingDateText: prev ? '(lượt bắt đầu hôm qua)' : '',
+      });
+    }
+    return slots;
+  }
 
   for (let hour = 0; hour < 24; hour++) {
     const { inWindow, belongsToPreviousDay } = getHourWindowInfo(hour, config.fmode);
@@ -156,6 +204,15 @@ export function calculateNextScheduledRun(
   config: ScheduleConfig
 ): { nextRun: Date; secondsUntil: number } | null {
   if (config.fmode === 0) return null;
+  if (config.fmode === CUSTOM_MODE) {
+    for (let k = 0; k <= 14; k++) {
+      const { start } = customRunOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + k), config);
+      if (start > now && isDayActive(start, config.day, config.wday)) {
+        return { nextRun: start, secondsUntil: Math.floor((start.getTime() - now.getTime()) / 1000) };
+      }
+    }
+    return null;
+  }
 
   // Search through the next 14 days hour-by-hour
   const testTime = new Date(now.getTime());
