@@ -77,6 +77,8 @@ describe('Demo device: adjustable TDS timing and 2 hour gap in TDS mode', () => 
     dev.handleCommand('DRAIN', { on: true });
     expect(lastAck().ok).toBe(true);
     vi.advanceTimersByTime(8000);
+    dev.handleCommand('DRAIN', { on: false }); // xa tay khong tu dung (Firmware 1.6.0)
+    vi.advanceTimersByTime(1000);
     expect(lastStatus().st).not.toBe(6);
     expect(lastStatus().dcool).toBeGreaterThan(7000);
 
