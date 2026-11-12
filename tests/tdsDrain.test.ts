@@ -32,6 +32,8 @@ describe('Water change by TDS (Firmware 1.5.0)', () => {
     expect(isSensorRealtime({ sens_rt: 0, drain: 1, d_mode: 0, tds_gap: 120 })).toBe(false);
     expect(isSensorRealtime({ sens_rt: 0, drain: 0, d_mode: 1, tds_gap: 120 })).toBe(false);
     expect(isSensorRealtime({ sens_rt: 1, drain: 0, d_mode: 0, tds_gap: 0 })).toBe(true);
+    expect(isSensorRealtime({ sens_rt: 0, drain: 1, d_mode: 1, tds_gap: 120, d_auto: 0 })).toBe(false); // tat tu dong
+    expect(isSensorRealtime({ sens_rt: 0, drain: 1, d_mode: 1, tds_gap: 120, d_auto: -1 })).toBe(true);
     expect(isSensorRealtime(null)).toBe(false);
   });
 
