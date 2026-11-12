@@ -54,6 +54,7 @@ import {
   PUMP_TYPES,
   UfConfig,
   UfStatus,
+  isSensorRealtime,
 } from '../types/system';
 
 interface TechTabProps {
@@ -224,6 +225,9 @@ export const TechTab: React.FC<TechTabProps> = ({
   // Hieu chuan TDS: may chi nhan khi bom LOC da chay lien tuc >= tds_run giay (dang xa thi khong tinh)
   const tdsRun = config?.tds_run ?? 10;
   const tdsInt = config?.tds_int ?? 30;
+  // Firmware 1.5.0: thay nuoc theo TDS -> may tu do lien tuc, khong tat duoc
+  const rtOn = isSensorRealtime(config);
+  const rtForced = rtOn && config?.sens_rt !== 1;
   const isPumpRunningForTds = status?.p[0] === 1 && status?.st !== 6;
   const elapsedRunSeconds = status ? status.rdur : 0;
   const isTdsReady = isPumpRunningForTds && elapsedRunSeconds >= tdsRun;
@@ -402,10 +406,17 @@ export const TechTab: React.FC<TechTabProps> = ({
                   Tắt (khuyên dùng): {formatMinutes(tdsInt)} đo 1 lần lúc nước đang chảy rồi giữ số. Bật: cập nhật từng giây, kể cả khi
                   nước đứng nên kém chính xác hơn.
                 </div>
+                {rtForced && (
+                  <div className="text-amber-300 mt-1 text-[11px]">
+                    Đang bật thay nước theo TDS nên máy tự đo liên tục (Firmware 1.5.0). Đổi sang thay nước hẹn giờ thì mục
+                    này mới chỉnh được.
+                  </div>
+                )}
               </div>
               <input
                 type="checkbox"
-                checked={config?.sens_rt === 1}
+                checked={rtOn}
+                disabled={rtForced}
                 onChange={(e) => handleUpdateConfig('sens_rt', e.target.checked ? 1 : 0)}
                 className="w-5 h-5 shrink-0 accent-cyan-500 rounded cursor-pointer"
               />
@@ -414,7 +425,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             {/* Tự đo TDS khi máy nghỉ */}
             <div
               className={`flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950 border border-slate-800 ${
-                config?.sens_rt === 1 ? 'opacity-50' : ''
+                rtOn ? 'opacity-50' : ''
               }`}
             >
               <div>
@@ -434,7 +445,7 @@ export const TechTab: React.FC<TechTabProps> = ({
             {/* Chu ky do + thoi gian chay bom de do (Firmware 1.3.0) */}
             <div
               className={`p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 ${
-                config?.sens_rt === 1 ? 'opacity-50' : ''
+                rtOn ? 'opacity-50' : ''
               }`}
             >
               <div>
