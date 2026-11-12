@@ -227,7 +227,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   // Circular gauge calculations: vong chay theo phan DA chay cua luot (giong man hinh may)
   const totalRunSecs = status?.run.tot || (config?.fmin ? config.fmin * 60 : 1800);
   const remainingSecs = Math.max(0, localRunLeft);
-  // Loc tay: vong sang day ngay, chi con 2 vet sang duoi nhau (thoi gian con lai xem o dong "Còn ...")
+  // Loc tay: vong sang day ngay, chi con 1 vet sang chay quanh (thoi gian con lai xem o dong "Còn ...")
   const isManualRun = status ? status.st === 3 : false;
   const progressRatio = isManualRun
     ? 1
@@ -249,7 +249,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const ringEnd = isManualRun
     ? '#3b82f6'
     : mixHex(isDraining ? '#fb923c' : '#3b82f6', isDraining ? '#facc15' : '#22c55e', progressRatio);
-  const chasePeriod = arcLength / 2; // 2 vet sang cach nhau nua vong
+  const chasePeriod = circumference; // 1 vet sang chay het vong (khe ho phia duoi bi che boi mask)
 
   // Status display texts & colors
   const getStatusTextAndStyle = () => {
@@ -495,7 +495,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               strokeLinecap="round"
               className="transition-all duration-1000 ease-linear"
             />
-            {/* Loc tay: 2 vet sang duoi nhau tren vong da day */}
+            {/* Loc tay: 1 vet sang chay quanh vong da day */}
             {isManualRun && (
               <circle
                 cx={size / 2}
@@ -505,11 +505,11 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                 stroke="#ecfeff"
                 strokeOpacity={0.85}
                 strokeWidth={strokeWidth - 4}
-                strokeDasharray={`${chasePeriod * 0.22} ${chasePeriod * 0.78}`}
+                strokeDasharray={`${chasePeriod * 0.12} ${chasePeriod * 0.88}`}
                 strokeLinecap="round"
                 mask="url(#ringArcMask)"
               >
-                <animate attributeName="stroke-dashoffset" from="0" to={-chasePeriod} dur="3.2s" repeatCount="indefinite" />
+                <animate attributeName="stroke-dashoffset" from="0" to={-chasePeriod} dur="2.4s" repeatCount="indefinite" />
               </circle>
             )}
             <defs>
