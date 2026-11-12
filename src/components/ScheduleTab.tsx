@@ -681,16 +681,16 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                     />
                     <span>phút</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Từ 10 phút đến 24 giờ. Mặc định 2 giờ.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Từ 10 phút đến 24 giờ. Mặc định 1 giờ.</p>
                 </div>
                 <div className="text-xs">
-                  <label className="block text-slate-400 mb-1">Số lần xả tối đa</label>
+                  <label className="block text-slate-400 mb-1">Xả mấy lần mà TDS không giảm thì dừng</label>
                   <div className={`flex items-center gap-1.5 text-slate-400 ${tdsTrySupported ? '' : 'opacity-50 pointer-events-none'}`}>
                     <NumBox
                       value={tdsTry}
                       min={1}
                       max={20}
-                      label="Số lần xả tối đa"
+                      label="Xả mấy lần mà TDS không giảm thì dừng"
                       tone="text-orange-400"
                       onChange={setTdsTry}
                     />
@@ -698,7 +698,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
                     {tdsTrySupported
-                      ? 'Từ 1 đến 20 lần. Mặc định 5. Xả đủ số lần này mà TDS chưa xuống mức dưới thì máy ngừng xả và báo E13.'
+                      ? 'Xả liên tiếp đủ số lần này mà TDS vẫn chưa xuống tới mức dưới thì máy dừng xả và báo E13. Từ 1 đến 20 lần, mặc định 5.'
                       : 'Máy đang chạy firmware cũ: cố định 5 lần. Nạp Firmware 1.5.1 để chỉnh.'}
                   </p>
                   {!tdsGapSupported && (
