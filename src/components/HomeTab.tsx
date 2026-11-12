@@ -227,7 +227,11 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   // Circular gauge calculations: vong chay theo phan DA chay cua luot (giong man hinh may)
   const totalRunSecs = status?.run.tot || (config?.fmin ? config.fmin * 60 : 1800);
   const remainingSecs = Math.max(0, localRunLeft);
-  const progressRatio = isFiltering && totalRunSecs > 0
+  // Loc tay: vong sang day ngay, chi con 2 vet sang duoi nhau (thoi gian con lai xem o dong "Còn ...")
+  const isManualRun = status ? status.st === 3 : false;
+  const progressRatio = isManualRun
+    ? 1
+    : isFiltering && totalRunSecs > 0
     ? Math.min(1, Math.max(0, 1 - remainingSecs / totalRunSecs))
     : 0;
 
@@ -242,7 +246,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   // Mau vong (giong man hinh may): dau vong = mau trang thai, cang gan du thoi gian cang ngả sang mau "xong"
   // loc: xanh duong -> xanh la; thay nuoc: cam -> vang
   const ringStart = isDraining ? '#f97316' : '#06b6d4';
-  const ringEnd = mixHex(isDraining ? '#fb923c' : '#3b82f6', isDraining ? '#facc15' : '#22c55e', progressRatio);
+  const ringEnd = isManualRun
+    ? '#3b82f6'
+    : mixHex(isDraining ? '#fb923c' : '#3b82f6', isDraining ? '#facc15' : '#22c55e', progressRatio);
+  const chasePeriod = arcLength / 2; // 2 vet sang cach nhau nua vong
 
   // Status display texts & colors
   const getStatusTextAndStyle = () => {
@@ -488,7 +495,36 @@ export const HomeTab: React.FC<HomeTabProps> = ({
               strokeLinecap="round"
               className="transition-all duration-1000 ease-linear"
             />
+            {/* Loc tay: 2 vet sang duoi nhau tren vong da day */}
+            {isManualRun && (
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke="#ecfeff"
+                strokeOpacity={0.85}
+                strokeWidth={strokeWidth - 4}
+                strokeDasharray={`${chasePeriod * 0.22} ${chasePeriod * 0.78}`}
+                strokeLinecap="round"
+                mask="url(#ringArcMask)"
+              >
+                <animate attributeName="stroke-dashoffset" from="0" to={-chasePeriod} dur="3.2s" repeatCount="indefinite" />
+              </circle>
+            )}
             <defs>
+              <mask id="ringArcMask" maskUnits="userSpaceOnUse" x={0} y={0} width={size} height={size}>
+                <circle
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  fill="none"
+                  stroke="#fff"
+                  strokeWidth={strokeWidth + 2}
+                  strokeDasharray={`${arcLength} ${circumference}`}
+                  strokeLinecap="round"
+                />
+              </mask>
               <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor={ringStart} />
                 <stop offset="100%" stopColor={ringEnd} />
