@@ -27,6 +27,9 @@ import {
 
 import { generate24HourSchedule } from '../services/scheduleCalculator';
 
+// Khoang nghi giua 2 lan xa theo TDS (phut): 1, 2, 3, 5, 12, 24 tieng
+const TDS_GAP_OPTIONS = [60, 120, 180, 300, 720, 1440];
+
 // O nhap so di kem thanh truot: go tu do; roi khoi o / bam Enter thi ep ve [min, max]
 const NumBox: React.FC<{
   value: number;
@@ -642,25 +645,31 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                   </div>
                 </div>
                 <div className="text-xs">
-                  <label className="block text-slate-400 mb-1">Hai lần xả cách nhau (phút)</label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={1440}
-                    step={5}
-                    disabled={!tdsGapSupported}
-                    value={tdsGap || ''}
-                    onChange={(e) => setTdsGap(Math.max(0, Math.round(Number(e.target.value) || 0)))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100 disabled:opacity-50"
-                  />
+                  <label className="block text-slate-400 mb-1">Hai lần xả cách nhau</label>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    {TDS_GAP_OPTIONS.concat(TDS_GAP_OPTIONS.includes(tdsGap) ? [] : [tdsGap]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        disabled={!tdsGapSupported}
+                        onClick={() => setTdsGap(m)}
+                        className={`py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-50 ${
+                          tdsGap === m
+                            ? 'bg-orange-950/50 border-orange-500 text-slate-100'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        {formatMinutes(m)}
+                      </button>
+                    ))}
+                  </div>
                   {!tdsGapSupported && (
                     <p className="text-[11px] text-slate-500 mt-1">Máy đang chạy firmware cũ: cố định 2 tiếng. Nạp Firmware 1.5.0 để chỉnh.</p>
                   )}
                 </div>
                 {!tdsLevelsOk && (
                   <p className="text-[11px] text-rose-300">
-                    Mức dưới phải từ 20 ppm, mức trên tối đa 2000 ppm, mức dưới thấp hơn mức trên ít nhất 10 ppm và khoảng
-                    cách giữa hai lần xả từ 10 đến 1440 phút.
+                    Mức dưới phải từ 20 ppm, mức trên tối đa 2000 ppm, mức dưới thấp hơn mức trên ít nhất 10 ppm.
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500">
