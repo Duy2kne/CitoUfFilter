@@ -150,6 +150,7 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         drain: (cfPkt.drain ?? 0) as 0 | 1,
         d_mode: Number(cfPkt.d_mode ?? 0),
         tds_hi: Number(cfPkt.tds_hi ?? 250),
+        d_auto: Number(cfPkt.d_auto ?? -1), // -1 = firmware cu hon 1.6.4 (luon tu thay nuoc)
         d_warn: Number(cfPkt.d_warn ?? 0), // 0 = firmware cu hon 1.6.0 (xa tay cung tu dung sau d_sec)
         tds_try: Number(cfPkt.tds_try ?? 0), // 0 = firmware cu hon 1.5.1 (co dinh 5 lan)
         tds_gap: Number(cfPkt.tds_gap ?? 0), // 0 = firmware cu hon 1.5.0 (nghi co dinh 2 tieng)
