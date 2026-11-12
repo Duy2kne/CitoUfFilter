@@ -6,7 +6,6 @@
 import {
   DEFAULT_PIN,
   drainGapSeconds,
-  TDS_DRAIN_MAX_TRIES,
   HistoryEventTuple,
   INITIAL_CONFIG,
   INITIAL_STATUS,
@@ -107,6 +106,7 @@ export class UfDemoDevice {
     c.tds_hi = clamp(Math.round(c.tds_hi), 30, 2000);
     c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
     c.tds_gap = clamp(Math.round(c.tds_gap), 10, 1440);
+    c.tds_try = clamp(Math.round(c.tds_try), 1, 20);
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
     c.tds_z = clamp(c.tds_z, 0, 0.3);
     c.tds_int = clamp(Math.round(c.tds_int), 5, 240);
@@ -168,7 +168,7 @@ export class UfDemoDevice {
         this.status.err &= ~0x1000;
         this.status.wrn &= ~0x1000;
       } else if (this.drainCooldownSeconds === 0 && this.status.tds !== null && this.status.tds > this.config.tds_hi) {
-        if (this.tdsTries >= TDS_DRAIN_MAX_TRIES) {
+        if (this.tdsTries >= this.config.tds_try) {
           this.status.err |= 0x1000;
           this.status.wrn |= 0x1000;
         } else if (!(this.status.err & 0x1000)) {
