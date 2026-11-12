@@ -20,12 +20,13 @@ import {
   DAY_OPTIONS,
   FILTER_MODES,
   formatHm,
+  formatLocalHm,
   formatMinutes,
   UfConfig,
   WEEKDAYS,
 } from '../types/system';
 
-import { generate24HourSchedule } from '../services/scheduleCalculator';
+import { generate24HourSchedule, upcomingDrainTimes } from '../services/scheduleCalculator';
 
 // O nhap so di kem thanh truot: go tu do; roi khoi o / bam Enter thi ep ve [min, max]
 const NumBox: React.FC<{
@@ -91,6 +92,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [tdsLo, setTdsLo] = useState<number>(150);
   const [tdsGap, setTdsGap] = useState<number>(120);
   const [tdsTry, setTdsTry] = useState<number>(5);
+  const [dWarn, setDWarn] = useState<number>(60);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -113,6 +115,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setTdsLo(config.tds_lo);
     setTdsGap(config.tds_gap > 0 ? config.tds_gap : 120);
     setTdsTry(config.tds_try > 0 ? config.tds_try : 5);
+    setDWarn(config.d_warn > 0 ? config.d_warn : 60);
   }, [
     config?.fmode,
     config?.fmin,
@@ -131,6 +134,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.tds_lo,
     config?.tds_gap,
     config?.tds_try,
+    config?.d_warn,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -161,6 +165,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
       }
       if (config.tds_gap > 0 && tdsGap !== config.tds_gap) diff.tds_gap = tdsGap; // Firmware 1.5.0 tro len
       if (config.tds_try > 0 && tdsTry !== config.tds_try) diff.tds_try = tdsTry; // Firmware 1.5.1 tro len
+      if (config.d_warn > 0 && dWarn !== config.d_warn) diff.d_warn = dWarn; // Firmware 1.6.0 tro len
     }
     return diff;
   };
@@ -171,6 +176,13 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const tdsTrySupported = !config || config.tds_try > 0;
   const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi && tdsGap >= 10 && tdsGap <= 1440;
   const clampDSec = (s: number) => Math.min(1800, Math.max(5, s));
+  const dWarnSupported = !config || config.d_warn > 0; // Firmware 1.6.0: xa tay khong gioi han, qua d_warn phut -> E14
+  const clampDWarn = (m: number) => Math.min(1440, Math.max(5, m));
+  const drainLenText =
+    dSec < 60 ? `${dSec} giây` : dSec % 60 === 0 ? `${dSec / 60} phút` : `${Math.floor(dSec / 60)} phút ${dSec % 60} giây`;
+  // Cac lan thay nuoc hen gio sap toi (tinh giong may: so ngay tu 1970 chia het cho d_days)
+  const localNowSec = Math.floor(Date.now() / 1000 - new Date().getTimezoneOffset() * 60);
+  const upcomingDrains = upcomingDrainTimes(localNowSec, dDays, dHour, dMin, 3);
   const clampTdsGap = (m: number) => Math.min(1440, Math.max(10, m)); // 10 phut .. 24 gio (giong firmware)
   const customSupported = !config || config.c_dur > 0; // Firmware 1.4.0 tro len
   const isCustom = fmode === 5;
@@ -329,170 +341,11 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         </div>
       </div>
 
-      {/* 1. Filter Mode Selector */}
-      <div className="space-y-3">
-        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-          1. Chế độ lọc (Khung giờ)
-        </label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-          {FILTER_MODES.map((mode) => {
-            const isSelected = fmode === mode.id;
-            const needsNewFw = mode.id === 5 && !customSupported;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                disabled={needsNewFw}
-                onClick={() => handlePickMode(mode.id)}
-                className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
-                  needsNewFw ? 'opacity-50 cursor-not-allowed ' : ''
-                }${
-                  isSelected
-                    ? 'bg-slate-900 border-cyan-500 shadow-lg shadow-cyan-950/40 text-slate-100'
-                    : 'bg-slate-900/60 border-slate-800/90 hover:border-slate-700 text-slate-300'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/60' : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {getModeIcon(mode.icon)}
-                    </div>
-                    <span className="font-bold text-sm">{mode.name}</span>
-                  </div>
-                  {isSelected && (
-                    <div className="w-5 h-5 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs font-semibold text-cyan-400 font-mono mb-1">
-                  {mode.hours}
-                </div>
-                <div className="text-[11px] text-slate-400 leading-normal">
-                  {needsNewFw ? 'Cần nạp Firmware 1.4.0 trở lên cho máy mới dùng được chế độ này' : mode.desc}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2 (che do Tu dat). Gio bat dau + so phut chay, nhap tay */}
-      {isCustom && (
-        <div className="p-5 rounded-3xl bg-slate-900/80 border border-fuchsia-800/50 space-y-4 animate-in fade-in">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              2. Giờ lọc và thời gian lọc (tự nhập)
-            </label>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Vào ngày được lọc (chọn ở mục 3), máy chạy một lượt từ giờ bắt đầu, đủ số phút thì nghỉ tới ngày lọc kế.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1">Giờ bắt đầu</label>
-              <input
-                type="time"
-                value={formatHm(cHour, cMin)}
-                onChange={(e) => {
-                  const [h, m] = e.target.value.split(':').map(Number);
-                  if (Number.isFinite(h) && Number.isFinite(m)) {
-                    setCHour(Math.min(23, Math.max(0, h)));
-                    setCMin(Math.min(59, Math.max(0, m)));
-                  }
-                }}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Thời gian lọc (phút)</label>
-              <input
-                type="number"
-                min={1}
-                max={1440}
-                step={1}
-                value={cDur || ''}
-                onChange={(e) => setCDur(Math.max(0, Math.round(Number(e.target.value) || 0)))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
-              />
-            </div>
-          </div>
-          {cDurOk ? (
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-fuchsia-400 shrink-0 mt-0.5" />
-              <span>
-                Máy lọc từ <strong className="text-cyan-300">{formatHm(cHour, cMin)}</strong> đến{' '}
-                <strong className="text-cyan-300">{cEndText}</strong> ({formatMinutes(cDur)}). Máy phải có giờ (gửi giờ điện
-                thoại hoặc WiFi nhà) thì lịch này mới chạy.
-              </span>
-            </div>
-          ) : (
-            <p className="text-[11px] text-rose-300">Thời gian lọc phải từ 1 đến 1440 phút (24 tiếng).</p>
-          )}
-        </div>
-      )}
-
-      {/* 2. Minutes Per Hour Slider */}
-      <div hidden={isCustom} className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              2. Thời gian lọc mỗi giờ
-            </label>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Trong khung giờ đã chọn, máy bắt đầu lọc từ đầu giờ (HH:00)
-            </p>
-          </div>
-          <div className="text-right">
-            <NumBox value={fmin} min={5} max={60} label="Số phút lọc mỗi giờ" onChange={setFmin} />
-            <span className="text-xs font-semibold text-slate-400 ml-1">phút/giờ</span>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <input
-            type="range"
-            min={5}
-            max={60}
-            step={5}
-            value={fmin}
-            onChange={(e) => setFmin(Number(e.target.value))}
-            className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
-          />
-          <div className="flex justify-between text-[10px] font-mono text-slate-500">
-            <span>5 ph</span>
-            <span>15 ph</span>
-            <span>30 ph (chuẩn)</span>
-            <span>45 ph</span>
-            <span>60 ph (liên tục)</span>
-          </div>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2.5">
-          <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-          <span>
-            {fmin === 60 ? (
-              <strong className="text-cyan-300">Máy sẽ lọc liên tục không nghỉ</strong>
-            ) : (
-              <>
-                Mỗi giờ máy lọc <strong className="text-cyan-300">{fmin} phút</strong> (từ :00 đến :{fmin.toString().padStart(2, '0')}), sau đó nghỉ{' '}
-                <strong className="text-slate-200">{60 - fmin} phút</strong> đến hết giờ.
-              </>
-            )}
-          </span>
-        </div>
-      </div>
-
-      {/* 3. Filter Days Rule (day & wday) */}
+      {/* 1. Filter Days Rule (day & wday) */}
       <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
         <div>
           <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            3. Ngày được phép lọc
+            1. Ngày được phép lọc
           </label>
           <p className="text-xs text-slate-400 mt-0.5">Quy định những ngày máy được phép chạy</p>
         </div>
@@ -545,6 +398,165 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             </div>
           </div>
         )}
+      </div>
+
+      {/* 2. Filter Mode Selector */}
+      <div className="space-y-3">
+        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+          2. Chế độ lọc (Khung giờ)
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+          {FILTER_MODES.map((mode) => {
+            const isSelected = fmode === mode.id;
+            const needsNewFw = mode.id === 5 && !customSupported;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                disabled={needsNewFw}
+                onClick={() => handlePickMode(mode.id)}
+                className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
+                  needsNewFw ? 'opacity-50 cursor-not-allowed ' : ''
+                }${
+                  isSelected
+                    ? 'bg-slate-900 border-cyan-500 shadow-lg shadow-cyan-950/40 text-slate-100'
+                    : 'bg-slate-900/60 border-slate-800/90 hover:border-slate-700 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/60' : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {getModeIcon(mode.icon)}
+                    </div>
+                    <span className="font-bold text-sm">{mode.name}</span>
+                  </div>
+                  {isSelected && (
+                    <div className="w-5 h-5 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center">
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs font-semibold text-cyan-400 font-mono mb-1">
+                  {mode.hours}
+                </div>
+                <div className="text-[11px] text-slate-400 leading-normal">
+                  {needsNewFw ? 'Cần nạp Firmware 1.4.0 trở lên cho máy mới dùng được chế độ này' : mode.desc}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3 (che do Tu dat). Gio bat dau + so phut chay, nhap tay */}
+      {isCustom && (
+        <div className="p-5 rounded-3xl bg-slate-900/80 border border-fuchsia-800/50 space-y-4 animate-in fade-in">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              3. Giờ lọc và thời gian lọc (tự nhập)
+            </label>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Vào ngày được lọc (chọn ở mục 1), máy chạy một lượt từ giờ bắt đầu, đủ số phút thì nghỉ tới ngày lọc kế.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label className="block text-slate-400 mb-1">Giờ bắt đầu</label>
+              <input
+                type="time"
+                value={formatHm(cHour, cMin)}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(':').map(Number);
+                  if (Number.isFinite(h) && Number.isFinite(m)) {
+                    setCHour(Math.min(23, Math.max(0, h)));
+                    setCMin(Math.min(59, Math.max(0, m)));
+                  }
+                }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">Thời gian lọc (phút)</label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                step={1}
+                value={cDur || ''}
+                onChange={(e) => setCDur(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
+              />
+            </div>
+          </div>
+          {cDurOk ? (
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-fuchsia-400 shrink-0 mt-0.5" />
+              <span>
+                Máy lọc từ <strong className="text-cyan-300">{formatHm(cHour, cMin)}</strong> đến{' '}
+                <strong className="text-cyan-300">{cEndText}</strong> ({formatMinutes(cDur)}). Máy phải có giờ (gửi giờ điện
+                thoại hoặc WiFi nhà) thì lịch này mới chạy.
+              </span>
+            </div>
+          ) : (
+            <p className="text-[11px] text-rose-300">Thời gian lọc phải từ 1 đến 1440 phút (24 tiếng).</p>
+          )}
+        </div>
+      )}
+
+      {/* 3. Minutes Per Hour Slider */}
+      <div hidden={isCustom} className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              3. Thời gian lọc mỗi giờ
+            </label>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Trong khung giờ đã chọn, máy bắt đầu lọc từ đầu giờ (HH:00)
+            </p>
+          </div>
+          <div className="text-right">
+            <NumBox value={fmin} min={5} max={60} label="Số phút lọc mỗi giờ" onChange={setFmin} />
+            <span className="text-xs font-semibold text-slate-400 ml-1">phút/giờ</span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <input
+            type="range"
+            min={5}
+            max={60}
+            step={5}
+            value={fmin}
+            onChange={(e) => setFmin(Number(e.target.value))}
+            className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-950 rounded-lg"
+          />
+          <div className="flex justify-between text-[10px] font-mono text-slate-500">
+            <span>5 ph</span>
+            <span>15 ph</span>
+            <span>30 ph (chuẩn)</span>
+            <span>45 ph</span>
+            <span>60 ph (liên tục)</span>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-300 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <span>
+            {fmin === 60 ? (
+              <strong className="text-cyan-300">Máy sẽ lọc liên tục không nghỉ</strong>
+            ) : (
+              <>
+                Mỗi giờ máy lọc <strong className="text-cyan-300">{fmin} phút</strong> (từ :00 đến :{fmin.toString().padStart(2, '0')}), sau đó nghỉ{' '}
+                <strong className="text-slate-200">{60 - fmin} phút</strong> đến hết giờ.
+              </>
+            )}
+          </span>
+        </div>
       </div>
 
       {/* 4. Manual Filter Duration */}
@@ -707,54 +719,46 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
             )}
 
             {dMode === 0 && (
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Mỗi (ngày)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={dDays}
-                  onChange={(e) => setDDays(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-100"
-                />
+              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-slate-300">
+                  <span>Cứ</span>
+                  <NumBox value={dDays} min={1} max={30} label="Số ngày giữa hai lần thay nước" tone="text-orange-400" onChange={setDDays} />
+                  <span>ngày thay nước một lần, vào lúc</span>
+                  <input
+                    type="time"
+                    aria-label="Giờ thay nước"
+                    value={formatHm(dHour, dMin)}
+                    onChange={(e) => {
+                      const [h, m] = e.target.value.split(':').map(Number);
+                      if (Number.isFinite(h) && Number.isFinite(m)) {
+                        setDHour(Math.min(23, Math.max(0, h)));
+                        setDMin(Math.min(59, Math.max(0, m)));
+                      }
+                    }}
+                    className="bg-slate-950 border border-slate-700 focus:border-cyan-500 outline-none rounded-xl px-2 py-1 text-xl font-black font-mono text-orange-400"
+                  />
+                </div>
+                <div>
+                  <div className="text-slate-400 mb-1.5">Các lần thay nước sắp tới (mỗi lần xả {drainLenText}):</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {upcomingDrains.map((at) => {
+                      const d = new Date(at * 1000);
+                      return (
+                        <span
+                          key={at}
+                          className="px-2.5 py-1 rounded-lg bg-orange-950/40 border border-orange-800/50 text-orange-200 font-mono"
+                        >
+                          {WEEKDAYS[d.getUTCDay()].label} {d.getUTCDate()}/{d.getUTCMonth() + 1} · {formatLocalHm(at)}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Giờ</label>
-                <select
-                  value={dHour}
-                  onChange={(e) => setDHour(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 font-mono text-slate-100"
-                >
-                  {Array.from({ length: 24 }, (_, h) => (
-                    <option key={h} value={h}>
-                      {h.toString().padStart(2, '0')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Phút</label>
-                <select
-                  value={dMin}
-                  onChange={(e) => setDMin(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 font-mono text-slate-100"
-                >
-                  {Array.from({ length: 12 }, (_, i) => i * 5)
-                    .concat(dMin % 5 ? [dMin] : [])
-                    .sort((a, b) => a - b)
-                    .map((m) => (
-                      <option key={m} value={m}>
-                        {m.toString().padStart(2, '0')}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
             )}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-300">Thời gian xả mỗi lần</span>
+                <span className="text-slate-300">Thời gian xả mỗi lần (tự động)</span>
                 <span className="flex items-center gap-1.5 text-slate-400">
                   <NumBox
                     value={Math.floor(dSec / 60)}
@@ -791,6 +795,34 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 <span>15 ph</span>
                 <span>30 ph</span>
               </div>
+            </div>
+            <div className="pt-3 border-t border-slate-800 text-xs space-y-1.5">
+              <div className="text-slate-300">Thay nước tay (nút &quot;Thay nước ngay&quot;): cảnh báo khi xả liên tục quá</div>
+              <div className={`flex items-center gap-1.5 text-slate-400 ${dWarnSupported ? '' : 'opacity-50 pointer-events-none'}`}>
+                <NumBox
+                  value={Math.floor(dWarn / 60)}
+                  min={0}
+                  max={24}
+                  label="Cảnh báo xả tay: giờ"
+                  tone="text-orange-400"
+                  onChange={(h) => setDWarn(clampDWarn(h * 60 + (dWarn % 60)))}
+                />
+                <span>giờ</span>
+                <NumBox
+                  value={dWarn % 60}
+                  min={0}
+                  max={59}
+                  label="Cảnh báo xả tay: phút"
+                  tone="text-orange-400"
+                  onChange={(m) => setDWarn(clampDWarn(Math.floor(dWarn / 60) * 60 + m))}
+                />
+                <span>phút</span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {dWarnSupported
+                  ? 'Xả tay không giới hạn thời gian: máy xả tới khi bạn bấm "Dừng xả". Quá thời gian này máy báo E14 nhưng vẫn xả tiếp. Từ 5 phút đến 24 giờ, mặc định 1 giờ.'
+                  : 'Máy đang chạy firmware cũ: xả tay cũng tự dừng sau "Thời gian xả mỗi lần". Nạp Firmware 1.6.0 để xả tay không giới hạn.'}
+              </p>
             </div>
             {dMode === 0 && (
               <p className="text-[11px] text-slate-500">
