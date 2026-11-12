@@ -40,6 +40,8 @@ export class UfDemoDevice {
   private drainRemainingSeconds: number = 0;
   private drainDoneDay: number = -1;          // Ngay (so ngay tu 1970) da thay nuoc theo lich
   private drainCooldownSeconds: number = 0;   // Xa xong phai nghi moi duoc xa lai: hen gio 1 tieng, theo TDS 2 tieng
+  private drainManual: boolean = false;       // Xa tay: khong tu dung, qua d_warn phut -> E14
+  private drainElapsedSeconds: number = 0;
   private tdsTries: number = 0;               // Theo TDS: so lan da tu xa lien tiep (5 lan khong giam -> E13)
   private runElapsedSeconds: number = 0;
   private pumpWasOn: boolean = false;
@@ -107,6 +109,7 @@ export class UfDemoDevice {
     c.tds_lo = clamp(Math.round(c.tds_lo), 20, c.tds_hi - 10);
     c.tds_gap = clamp(Math.round(c.tds_gap), 10, 1440);
     c.tds_try = clamp(Math.round(c.tds_try), 1, 20);
+    c.d_warn = clamp(Math.round(c.d_warn), 5, 1440);
     c.tds_alarm = clamp(Math.round(c.tds_alarm), 0, 9999);
     c.tds_z = clamp(c.tds_z, 0, 0.3);
     c.tds_int = clamp(Math.round(c.tds_int), 5, 240);
@@ -189,6 +192,7 @@ export class UfDemoDevice {
     // Dang thay nuoc: uu tien hon loc
     if (this.isDraining) {
       this.drainRemainingSeconds--;
+      this.drainElapsedSeconds++;
       this.status.st = 6;
       this.status.ph = 'DRAINING';
       this.status.p = [1, 1, 290];
@@ -196,6 +200,19 @@ export class UfDemoDevice {
       this.status.d = [this.config.drain, 1, 1, 180];
       this.status.dleft = Math.max(0, this.drainRemainingSeconds);
       this.status.run = { tot: this.config.d_sec, left: this.status.dleft };
+      this.status.dman = this.drainManual ? 1 : 0;
+      if (this.drainManual) {
+        // Xa tay: chay toi khi nguoi dung dung; dleft = giay con lai toi moc canh bao E14
+        const limit = this.config.d_warn * 60;
+        this.status.dleft = Math.max(0, limit - this.drainElapsedSeconds);
+        this.status.run = { tot: limit, left: this.status.dleft };
+        if (this.status.dleft === 0) {
+          this.status.err |= 0x2000;
+          this.status.wrn |= 0x2000;
+        }
+        this.emit({ t: 'st', ...this.status });
+        return;
+      }
       if (this.drainRemainingSeconds <= 0) {
         this.isDraining = false;
         this.drainCooldownSeconds = drainGapSeconds(this.config.d_mode, this.config.tds_gap);
@@ -301,7 +318,9 @@ export class UfDemoDevice {
     this.emit({ t: 'st', ...this.status });
   }
 
-  private startDrain(src: number, val: number = 1) {
+  private startDrain(src: number, val: number = 1, manual: boolean = false) {
+    this.drainManual = manual;
+    this.drainElapsedSeconds = 0;
     this.isDraining = true;
     this.drainRemainingSeconds = this.config.d_sec;
     this.isMeasuring = false;
@@ -541,7 +560,15 @@ export class UfDemoDevice {
         const on = Boolean(params.on);
         if (!on) {
           if (this.isDraining) {
+            // Giong firmware: dung giua chung cung tinh la vua xa -> phai nghi moi duoc xa lai
             this.isDraining = false;
+            this.drainManual = false;
+            this.status.dman = 0;
+            this.status.dleft = 0;
+            this.status.err &= ~0x2000;
+            this.status.wrn &= ~0x2000;
+            this.drainCooldownSeconds = drainGapSeconds(this.config.d_mode, this.config.tds_gap);
+            this.status.dcool = this.drainCooldownSeconds;
             this.addHistoryEvent(15, 3, 0);
           }
           this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đã dừng thay nước' });
@@ -565,7 +592,7 @@ export class UfDemoDevice {
           });
           return;
         }
-        if (!this.isDraining) this.startDrain(3);
+        if (!this.isDraining) this.startDrain(3, 1, true);
         this.emit({ t: 'ack', a: 'DRAIN', ok: true, msg: 'Đang thay nước' });
         this.emit({ t: 'st', ...this.status });
         break;
