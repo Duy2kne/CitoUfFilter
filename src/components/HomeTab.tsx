@@ -216,6 +216,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const tdsRun = config?.tds_run ?? 10; // Giay bom chay de do TDS
   const manualMin = config?.man_min ?? 30;
   const drainSec = config?.d_sec ?? 60;
+  // Firmware 1.6.0: xa tay khong gioi han thoi gian, qua d_warn phut thi canh bao E14
+  const manualNoLimit = (config?.d_warn ?? 0) > 0;
+  const drainWarnMin = config?.d_warn || 60;
+  const drainManual = (status?.dman ?? 0) === 1;
 
   // Vi sao cac nut dieu khien bi khoa (hien ngay duoi nut de khach khoi doan)
   const blockReason = !status
@@ -319,7 +323,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     }
     onRequestConfirm(
       'Thay nước ngay?',
-      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`,
+      manualNoLimit
+        ? `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài cho tới khi bạn bấm "Dừng xả" (không tự dừng). Xả liên tục quá ${formatMinutes(drainWarnMin)} thì máy báo cảnh báo E14 nhưng vẫn xả tiếp. Sau khi dừng phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`
+        : `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`,
       () => send('drain', 'DRAIN', { on: true })
     );
   };
@@ -652,10 +658,16 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             <span className="text-[11px] font-normal opacity-90">
               {!hasDrainValve
                 ? 'Máy chưa lắp van xả'
+                : drainManual
+                ? (status?.dleft ?? 0) > 0
+                  ? `Đang xả tay · cảnh báo sau ${formatDuration(status?.dleft ?? 0)}`
+                  : 'Xả tay quá lâu – bấm để dừng'
                 : isDraining
                 ? `Còn ${formatDuration(status?.dleft ?? 0)}`
                 : drainCooldown > 0
                 ? `Vừa xả – chờ ${Math.ceil(drainCooldown / 60)} phút`
+                : manualNoLimit
+                ? 'Xả tới khi bạn bấm dừng'
                 : `Xả ${formatDuration(drainSec)} rồi tự dừng`}
             </span>
           </button>
@@ -852,7 +864,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-xs text-slate-400 font-medium">
-              {isDraining ? 'Thay nước còn lại' : isFiltering ? 'Lượt lọc này còn' : 'Lần lọc tiếp theo'}
+              {drainManual ? 'Xả tay – còn tới lúc cảnh báo' : isDraining ? 'Thay nước còn lại' : isFiltering ? 'Lượt lọc này còn' : 'Lần lọc tiếp theo'}
             </div>
 
             {isFiltering ? (
@@ -945,7 +957,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           ) : (
             <>
               <div className="text-sm font-bold text-slate-100 mt-1.5">
-                {isDraining
+                {drainManual
+                  ? `Đang xả tay · đã chạy ${formatDuration(status?.rdur ?? 0)}`
+                  : isDraining
                   ? `Đang xả · còn ${formatDuration(status?.dleft ?? 0)}`
                   : config?.d_mode === 1
                   ? `Theo TDS: xả khi trên ${config.tds_hi} ppm${
