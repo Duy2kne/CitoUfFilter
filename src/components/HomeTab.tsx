@@ -324,7 +324,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     onRequestConfirm(
       'Thay nước ngay?',
       manualNoLimit
-        ? `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài cho tới khi bạn bấm "Dừng xả" (không tự dừng). Xả liên tục quá ${formatMinutes(drainWarnMin)} thì máy báo cảnh báo E14 nhưng vẫn xả tiếp. Sau khi dừng phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`
+        ? `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài cho tới khi bạn bấm "Dừng xả" (không tự dừng). Xả liên tục quá ${formatMinutes(drainWarnMin)} thì máy báo cảnh báo E14 nhưng vẫn xả tiếp. Dừng rồi muốn xả lại lúc nào cũng được. Tiếp tục?`
         : `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`,
       () => send('drain', 'DRAIN', { on: true })
     );
@@ -399,7 +399,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   const bigBtn =
     'flex flex-col items-center justify-center gap-1 min-h-[76px] py-3 px-3 rounded-2xl font-semibold text-sm border shadow-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed';
   const offBtn = 'bg-slate-900/50 text-slate-500 border-slate-800 shadow-none';
-  const drainBlocked = !canRun || !hasDrainValve || (!isDraining && drainCooldown > 0);
+  // Firmware 1.6.x: xa tay khong bi chan boi thoi gian nghi (nghi chi ap dung cho xa tu dong). May cu van chan.
+  const drainWait = !manualNoLimit && !isDraining && drainCooldown > 0;
+  const drainBlocked = !canRun || !hasDrainValve || drainWait;
 
   return (
     <div className="space-y-5 pb-8 animate-in fade-in duration-200">
@@ -664,7 +666,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                   : 'Xả tay quá lâu – bấm để dừng'
                 : isDraining
                 ? `Còn ${formatDuration(status?.dleft ?? 0)}`
-                : drainCooldown > 0
+                : drainWait
                 ? `Vừa xả – chờ ${Math.ceil(drainCooldown / 60)} phút`
                 : manualNoLimit
                 ? 'Xả tới khi bạn bấm dừng'
