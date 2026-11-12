@@ -29,7 +29,7 @@ describe('Firmware 1.3.0 fields', () => {
   });
 });
 
-describe('Demo device: adjustable TDS timing and 2 hour gap in TDS mode', () => {
+describe('Demo device: adjustable TDS timing and the gap in TDS mode', () => {
   let dev: UfDemoDevice;
   let packets: UfIncomingPacket[];
   const lastAck = () => [...packets].reverse().find((p) => p.t === 'ack') as UfAckPacket;
@@ -72,8 +72,8 @@ describe('Demo device: adjustable TDS timing and 2 hour gap in TDS mode', () => 
     expect(lastStatus().st).toBe(1);
   });
 
-  it('water change in TDS mode is followed by a 2 hour rest', () => {
-    dev.handleCommand('SET', { drain: 1, d_mode: 1, d_sec: 5 });
+  it('water change in TDS mode is followed by the tds_gap rest (2 hours here)', () => {
+    dev.handleCommand('SET', { drain: 1, d_mode: 1, d_sec: 5, tds_gap: 120 });
     dev.handleCommand('DRAIN', { on: true });
     expect(lastAck().ok).toBe(true);
     vi.advanceTimersByTime(8000);
@@ -82,7 +82,7 @@ describe('Demo device: adjustable TDS timing and 2 hour gap in TDS mode', () => 
     expect(lastStatus().st).not.toBe(6);
     expect(lastStatus().dcool).toBeGreaterThan(7000);
 
-    dev.handleCommand('DRAIN', { on: true });
-    expect(lastAck().ok).toBe(false);
+    dev.handleCommand('DRAIN', { on: true }); // xa tay khong bi chan boi thoi gian nghi
+    expect(lastAck().ok).toBe(true);
   });
 });
