@@ -28,7 +28,7 @@ import {
   formatCurrent,
   drainGapSeconds,
   isSensorRealtime,
-  TDS_DRAIN_MAX_TRIES,
+  tdsMaxTries,
   formatDuration,
   formatLocalHm,
   formatMinutes,
@@ -949,7 +949,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                   ? `Đang xả · còn ${formatDuration(status?.dleft ?? 0)}`
                   : config?.d_mode === 1
                   ? `Theo TDS: xả khi trên ${config.tds_hi} ppm${
-                      (status?.dtry ?? 0) > 0 ? ` · đã xả ${status?.dtry}/${TDS_DRAIN_MAX_TRIES} lần` : ''
+                      (status?.dtry ?? 0) > 0 ? ` · đã xả ${status?.dtry}/${tdsMaxTries(config)} lần` : ''
                     }`
                   : status?.dnext_t
                   ? `Lần tới ${formatLocalHm(status.dnext_t)} ngày ${new Date(status.dnext_t * 1000)
