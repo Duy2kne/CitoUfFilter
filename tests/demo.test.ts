@@ -62,7 +62,11 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
     dev.handleCommand('SET', { fmode: 4 });
     expect(lastConfig().fmode).toBe(4);
     expect(lastConfig().fmin).toBe(10);
-    dev.handleCommand('SET', { fmode: 5 }); // che do Tuy chinh da bo -> ve Ban dem
+    dev.handleCommand('SET', { fmode: 5, c_hour: 30, c_dur: 5000 }); // Tu dat: ep gio / so phut ve vung hop le
+    expect(lastConfig().fmode).toBe(5);
+    expect(lastConfig().c_hour).toBe(23);
+    expect(lastConfig().c_dur).toBe(1440);
+    dev.handleCommand('SET', { fmode: 6 }); // che do khong co -> ve Ban dem
     expect(lastConfig().fmode).toBe(3);
   });
 
