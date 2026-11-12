@@ -637,7 +637,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                 ? `Còn ${formatDuration(remainingSecs)}`
                 : isManual
                 ? 'Đang chờ chạy'
-                : `Chạy ${manualMin} phút rồi tự dừng`}
+                : `Chạy ${formatMinutes(manualMin)} rồi tự dừng`}
             </span>
           </button>
 
@@ -963,6 +963,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                   ? `Đang xả tay · đã chạy ${formatDuration(status?.rdur ?? 0)}`
                   : isDraining
                   ? `Đang xả · còn ${formatDuration(status?.dleft ?? 0)}`
+                  : config?.d_auto === 0
+                  ? 'Tự động đang tắt – chỉ xả tay'
                   : config?.d_mode === 1
                   ? `Theo TDS: xả khi trên ${config.tds_hi} ppm${
                       (status?.dtry ?? 0) > 0 ? ` · đã xả ${status?.dtry}/${tdsMaxTries(config)} lần` : ''
