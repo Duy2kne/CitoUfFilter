@@ -101,7 +101,7 @@ export interface UfConfig {
   tds_hi: number; // TDS mode: above this -> change water (ppm)
   tds_lo: number; // TDS mode: keep changing until TDS <= this (ppm)
   tds_try: number; // TDS mode: automatic water changes in a row before giving up with E13 (1-20, default 5). 0 = firmware older than 1.5.1 (fixed 5)
-  tds_gap: number; // TDS mode: minutes between two water changes (10-1440, default 120). 0 = firmware older than 1.5.0 (fixed 2 hours)
+  tds_gap: number; // TDS mode: minutes between two water changes (10-1440, default 60 since firmware 1.6.1). 0 = firmware older than 1.5.0 (fixed 2 hours)
   d_days: number; // Change water every N days (1-30; epoch day % N == 0)
   d_hour: number; // Hour (0-23)
   d_min: number; // Minute (0-59)
@@ -276,7 +276,7 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     name: 'Thay nước nhiều lần mà TDS không giảm',
     isLocking: false,
     isWarning: true,
-    hint: 'Máy đã ngừng tự xả theo TDS (vẫn lọc bình thường). Kiểm tra nguồn nước cấp, van xả, đầu dò TDS hoặc mức TDS dưới đặt quá thấp. Máy đã xả đủ số lần cho phép (cài ở tab Lịch, mặc định 5). Bấm "Xóa lỗi" để máy thử xả lại từ đầu; TDS xuống tới mức dưới thì cảnh báo tự hết.',
+    hint: 'Máy đã ngừng tự xả theo TDS (vẫn lọc bình thường). Kiểm tra nguồn nước cấp, van xả, đầu dò TDS hoặc mức TDS dưới đặt quá thấp. Máy đã xả đủ số lần cài ở tab Lịch (mặc định 5) mà TDS không giảm. Bấm "Xóa lỗi" để máy thử xả lại từ đầu; TDS xuống tới mức dưới thì cảnh báo tự hết.',
   },
 };
 
@@ -554,7 +554,7 @@ export const INITIAL_CONFIG: UfConfig = {
   tds_hi: 250,
   tds_lo: 150,
   tds_try: 5,
-  tds_gap: 120,
+  tds_gap: 60,
   d_days: 3,
   d_hour: 12,
   d_min: 0,
