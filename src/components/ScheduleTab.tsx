@@ -27,9 +27,6 @@ import {
 
 import { generate24HourSchedule } from '../services/scheduleCalculator';
 
-// Khoang nghi giua 2 lan xa theo TDS (phut): 1, 2, 3, 5, 12, 24 tieng
-const TDS_GAP_OPTIONS = [60, 120, 180, 300, 720, 1440];
-
 // O nhap so di kem thanh truot: go tu do; roi khoi o / bam Enter thi ep ve [min, max]
 const NumBox: React.FC<{
   value: number;
@@ -93,6 +90,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const [tdsHi, setTdsHi] = useState<number>(250);
   const [tdsLo, setTdsLo] = useState<number>(150);
   const [tdsGap, setTdsGap] = useState<number>(120);
+  const [tdsTry, setTdsTry] = useState<number>(5);
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync form when config packet arrives from machine (even when changed by buttons on physical device)
@@ -114,6 +112,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     setTdsHi(config.tds_hi);
     setTdsLo(config.tds_lo);
     setTdsGap(config.tds_gap > 0 ? config.tds_gap : 120);
+    setTdsTry(config.tds_try > 0 ? config.tds_try : 5);
   }, [
     config?.fmode,
     config?.fmin,
@@ -131,6 +130,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
     config?.tds_hi,
     config?.tds_lo,
     config?.tds_gap,
+    config?.tds_try,
   ]);
 
   // Compute modified keys to send ONLY modified keys in SET command
@@ -160,6 +160,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
         diff.tds_lo = tdsLo;
       }
       if (config.tds_gap > 0 && tdsGap !== config.tds_gap) diff.tds_gap = tdsGap; // Firmware 1.5.0 tro len
+      if (config.tds_try > 0 && tdsTry !== config.tds_try) diff.tds_try = tdsTry; // Firmware 1.5.1 tro len
     }
     return diff;
   };
@@ -167,8 +168,10 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
   const modifiedKeys = getModifiedKeys();
   const hasChanges = Object.keys(modifiedKeys).length > 0;
   const tdsGapSupported = !config || config.tds_gap > 0;
+  const tdsTrySupported = !config || config.tds_try > 0;
   const tdsLevelsOk = tdsLo >= 20 && tdsHi <= 2000 && tdsLo + 10 <= tdsHi && tdsGap >= 10 && tdsGap <= 1440;
   const clampDSec = (s: number) => Math.min(1800, Math.max(5, s));
+  const clampTdsGap = (m: number) => Math.min(1440, Math.max(10, m)); // 10 phut .. 24 gio (giong firmware)
   const customSupported = !config || config.c_dur > 0; // Firmware 1.4.0 tro len
   const isCustom = fmode === 5;
   const cDurOk = cDur >= 1 && cDur <= 1440;
@@ -646,23 +649,46 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 </div>
                 <div className="text-xs">
                   <label className="block text-slate-400 mb-1">Hai lần xả cách nhau</label>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                    {TDS_GAP_OPTIONS.concat(TDS_GAP_OPTIONS.includes(tdsGap) ? [] : [tdsGap]).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        disabled={!tdsGapSupported}
-                        onClick={() => setTdsGap(m)}
-                        className={`py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-50 ${
-                          tdsGap === m
-                            ? 'bg-orange-950/50 border-orange-500 text-slate-100'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                        }`}
-                      >
-                        {formatMinutes(m)}
-                      </button>
-                    ))}
+                  <div className={`flex items-center gap-1.5 text-slate-400 ${tdsGapSupported ? '' : 'opacity-50 pointer-events-none'}`}>
+                    <NumBox
+                      value={Math.floor(tdsGap / 60)}
+                      min={0}
+                      max={24}
+                      label="Hai lần xả cách nhau: giờ"
+                      tone="text-orange-400"
+                      onChange={(h) => setTdsGap(clampTdsGap(h * 60 + (tdsGap % 60)))}
+                    />
+                    <span>giờ</span>
+                    <NumBox
+                      value={tdsGap % 60}
+                      min={0}
+                      max={59}
+                      label="Hai lần xả cách nhau: phút"
+                      tone="text-orange-400"
+                      onChange={(m) => setTdsGap(clampTdsGap(Math.floor(tdsGap / 60) * 60 + m))}
+                    />
+                    <span>phút</span>
                   </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Từ 10 phút đến 24 giờ. Mặc định 2 giờ.</p>
+                </div>
+                <div className="text-xs">
+                  <label className="block text-slate-400 mb-1">Số lần xả tối đa</label>
+                  <div className={`flex items-center gap-1.5 text-slate-400 ${tdsTrySupported ? '' : 'opacity-50 pointer-events-none'}`}>
+                    <NumBox
+                      value={tdsTry}
+                      min={1}
+                      max={20}
+                      label="Số lần xả tối đa"
+                      tone="text-orange-400"
+                      onChange={setTdsTry}
+                    />
+                    <span>lần</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {tdsTrySupported
+                      ? 'Từ 1 đến 20 lần. Mặc định 5. Xả đủ số lần này mà TDS chưa xuống mức dưới thì máy ngừng xả và báo E13.'
+                      : 'Máy đang chạy firmware cũ: cố định 5 lần. Nạp Firmware 1.5.1 để chỉnh.'}
+                  </p>
                   {!tdsGapSupported && (
                     <p className="text-[11px] text-slate-500 mt-1">Máy đang chạy firmware cũ: cố định 2 tiếng. Nạp Firmware 1.5.0 để chỉnh.</p>
                   )}
@@ -674,7 +700,7 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = ({ config, onSendCommand 
                 )}
                 <p className="text-[11px] text-slate-500">
                   Khi bật chế độ này máy đo TDS liên tục. Mỗi lần xả chạy đúng &quot;Thời gian xả mỗi lần&quot; bên dưới, xong
-                  nghỉ {formatMinutes(tdsGap)} rồi xem lại TDS: còn cao hơn mức dưới thì xả tiếp, đạt mức dưới thì ngừng. Xả đủ 5
+                  nghỉ {formatMinutes(tdsGap)} rồi xem lại TDS: còn cao hơn mức dưới thì xả tiếp, đạt mức dưới thì ngừng. Xả đủ {tdsTry}
                   lần liên tiếp mà TDS vẫn chưa xuống mức dưới thì máy ngừng xả và báo E13 (Firmware 1.5.0).
                 </p>
               </div>
