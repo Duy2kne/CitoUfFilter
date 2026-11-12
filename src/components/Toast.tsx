@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 
 export interface ToastItem {
@@ -11,6 +11,8 @@ export interface ToastItem {
   type: 'success' | 'error' | 'info';
   message: string;
 }
+
+export const TOAST_MS = 4500; // Thong bao tu tat sau ngan nay
 
 interface ToastProps {
   toasts: ToastItem[];
@@ -31,12 +33,14 @@ const ToastCard: React.FC<{ toast: ToastItem; onDismiss: (id: string) => void }>
   toast,
   onDismiss,
 }) => {
+  // onDismiss la ham moi sau moi lan App ve lai (goi trang thai ve moi giay). Neu de no trong danh sach phu thuoc
+  // thi dong ho 4.5 giay bi dat lai lien tuc va thong bao khong bao gio tu tat -> giu ham moi nhat trong ref.
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onDismiss(toast.id);
-    }, 4500);
+    const timer = setTimeout(() => dismissRef.current(toast.id), TOAST_MS);
     return () => clearTimeout(timer);
-  }, [toast.id, onDismiss]);
+  }, [toast.id]);
 
   const config = {
     success: {
