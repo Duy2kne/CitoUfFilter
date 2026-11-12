@@ -70,7 +70,7 @@ export interface UfConfig {
   fmin: number; // Filter duration each hour (5-60 min)
   day: number; // 0: Every day, 1: Even days, 2: Odd days, 3: Every 3 days, 4: By weekday
   wday: number; // Weekday bitmask (bit0=Sun, bit1=Mon ... bit6=Sat)
-  man_min: number; // Manual filter run duration in minutes (5-240)
+  man_min: number; // Manual filter run duration in minutes (5-1440 since firmware 1.6.3; older firmware caps at 240)
   c_hour: number; // Custom mode (fmode 5): start hour 0-23. Firmware 1.4.0+
   c_min: number; // Custom mode: start minute 0-59
   c_dur: number; // Custom mode: run length in minutes (1-1440). 0 = firmware older than 1.4.0 (no custom mode)
