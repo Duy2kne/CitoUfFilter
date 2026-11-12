@@ -97,6 +97,7 @@ export interface UfConfig {
   bz_alarm: 0 | 1; // Fault alarm buzzer
   // Water change (drain) - optional. Absent on older firmware -> treated as not installed
   drain: 0 | 1; // 1 = drain valve installed (GPIO26)
+  d_auto: number; // 1 = automatic water change on (timer / TDS), 0 = manual only. -1 = firmware older than 1.6.4 (always on)
   d_mode: number; // 0 = by timer (d_days / d_hour / d_min), 1 = by TDS (tds_hi / tds_lo)
   tds_hi: number; // TDS mode: above this -> change water (ppm)
   tds_lo: number; // TDS mode: keep changing until TDS <= this (ppm)
@@ -395,9 +396,11 @@ export function drainGapSeconds(dMode: number | undefined, tdsGapMin?: number): 
 }
 
 // TDS / nhiet do dang cap nhat lien tuc: nguoi dung bat, hoac Firmware 1.5.0 tu ep khi thay nuoc theo TDS
-export function isSensorRealtime(c: Pick<UfConfig, 'sens_rt' | 'drain' | 'd_mode' | 'tds_gap'> | null | undefined): boolean {
+export function isSensorRealtime(
+  c: (Pick<UfConfig, 'sens_rt' | 'drain' | 'd_mode' | 'tds_gap'> & { d_auto?: number }) | null | undefined
+): boolean {
   if (!c) return false;
-  return c.sens_rt === 1 || (c.drain === 1 && c.d_mode === 1 && c.tds_gap > 0);
+  return c.sens_rt === 1 || (c.drain === 1 && c.d_auto !== 0 && c.d_mode === 1 && c.tds_gap > 0);
 }
 
 // So phut -> "30 phút", "1 tiếng", "1 tiếng 30 phút"
@@ -550,6 +553,7 @@ export const INITIAL_CONFIG: UfConfig = {
   bz_key: 1,
   bz_alarm: 1,
   drain: 1,
+  d_auto: 1,
   d_mode: 0,
   tds_hi: 250,
   tds_lo: 150,
