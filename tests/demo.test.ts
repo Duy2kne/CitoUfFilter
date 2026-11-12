@@ -58,7 +58,9 @@ describe('Demo device follows firmware 1.1.0 command rules', () => {
 
   it('SET clamps like settings_validate and resets fmin when only the mode changes', () => {
     dev.handleCommand('SET', { man_min: 999 });
-    expect(lastConfig().man_min).toBe(240);
+    expect(lastConfig().man_min).toBe(999); // Firmware 1.6.3: loc tay toi 24 gio
+    dev.handleCommand('SET', { man_min: 9999 });
+    expect(lastConfig().man_min).toBe(1440);
     dev.handleCommand('SET', { fmode: 4 });
     expect(lastConfig().fmode).toBe(4);
     expect(lastConfig().fmin).toBe(10);
