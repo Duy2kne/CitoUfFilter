@@ -37,6 +37,7 @@ export interface UfStatus {
   v: [number, number, number, number]; // Valve: [installed/enabled (0/1), on (0/1), has_current_sensor (0/1), current_mA]
   d: [number, number, number, number]; // Drain valve (water change): [installed, open, has_current_sensor, current_mA]
   dleft: number; // Draining: seconds left (0 = not draining)
+  dman: number; // 1 = manual water change running: no time limit, dleft = seconds until the E14 warning. Firmware 1.6.0+
   dtry: number; // TDS mode: automatic water changes done in a row while TDS is still above tds_lo (5 -> E13). Firmware 1.5.0+
   dcool: number; // Just drained: seconds left before another water change is allowed (0 = allowed)
   dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock / TDS mode)
@@ -104,7 +105,8 @@ export interface UfConfig {
   d_days: number; // Change water every N days (1-30; epoch day % N == 0)
   d_hour: number; // Hour (0-23)
   d_min: number; // Minute (0-59)
-  d_sec: number; // Drain duration in seconds (5-1800)
+  d_sec: number; // Drain duration in seconds (5-1800) - automatic water changes only since firmware 1.6.0
+  d_warn: number; // Manual water change running longer than this many minutes -> E14 warning (5-1440, default 60). 0 = firmware older than 1.6.0 (manual change also stops after d_sec)
   d_vmin: number; // Drain valve under-current threshold (mA) -> E11
   d_vmax: number; // Drain valve over-current threshold (mA) -> E12 (locked)
   z_d: number; // Drain ACS712 zero voltage (V)
@@ -260,6 +262,14 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     isWarning: false,
     hint: 'Máy đã khóa an toàn! Cuộn van xả chập hoặc kẹt. Kiểm tra van xả trước khi bấm "Xóa lỗi".',
   },
+  14: {
+    code: 'E14',
+    bit: 13,
+    name: 'Xả tay quá lâu',
+    isLocking: false,
+    isWarning: true,
+    hint: 'Máy đang xả tay liên tục lâu hơn thời gian cảnh báo đã cài (tab Lịch, mặc định 1 tiếng) và VẪN ĐANG XẢ. Bấm "Dừng xả" nếu đã đủ, kẻo hồ cạn nước. Dừng xả thì cảnh báo tự hết.',
+  },
   13: {
     code: 'E13',
     bit: 12,
@@ -316,8 +326,8 @@ export const MACHINE_STATES: Record<number, { name: string; color: string; badge
 
 /** Locked faults (E2, E6, E12): power on again or CLEAR_FAULTS */
 export const LOCKED_ERRORS_MASK = 0x822;
-/** Number of error codes known by the firmware (E1..E13) */
-export const ERROR_COUNT = 13;
+/** Number of error codes known by the firmware (E1..E14) */
+export const ERROR_COUNT = 14;
 
 /**
  * Format current: mA under 1000, A with 2 decimals >= 1000
@@ -486,6 +496,7 @@ export const INITIAL_STATUS: UfStatus = {
   v: [0, 0, 0, 0],
   d: [0, 0, 0, 0],
   dleft: 0,
+  dman: 0,
   dtry: 0,
   dcool: 0,
   dnext_t: 0,
@@ -548,6 +559,7 @@ export const INITIAL_CONFIG: UfConfig = {
   d_hour: 12,
   d_min: 0,
   d_sec: 60,
+  d_warn: 60,
   d_vmin: 50,
   d_vmax: 1000,
   z_d: 1.667,
