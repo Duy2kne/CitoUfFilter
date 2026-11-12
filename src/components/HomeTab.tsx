@@ -27,6 +27,8 @@ import {
   formatHm,
   formatCurrent,
   drainGapSeconds,
+  isSensorRealtime,
+  TDS_DRAIN_MAX_TRIES,
   formatDuration,
   formatLocalHm,
   formatMinutes,
@@ -317,7 +319,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
     }
     onRequestConfirm(
       'Thay nước ngay?',
-      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${drainGapSeconds(config?.d_mode) / 3600} tiếng mới xả lại được. Tiếp tục?`,
+      `Máy sẽ đóng van lọc, mở van xả và bơm nước ra ngoài trong ${formatDuration(drainSec)}. Sau khi xả xong phải chờ ${formatMinutes(drainGapSeconds(config?.d_mode, config?.tds_gap) / 60)} mới xả lại được. Tiếp tục?`,
       () => send('drain', 'DRAIN', { on: true })
     );
   };
@@ -440,7 +442,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
 
                 {/* Inline Action for Specific Error */}
                 <div className="shrink-0 pt-0.5">
-                  {['E1', 'E2', 'E5', 'E6', 'E11', 'E12'].includes(err.code) && (
+                  {['E1', 'E2', 'E5', 'E6', 'E11', 'E12', 'E13'].includes(err.code) && (
                     <button
                       onClick={handleClearFaults}
                       className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl shadow-sm transition-all"
@@ -946,7 +948,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                 {isDraining
                   ? `Đang xả · còn ${formatDuration(status?.dleft ?? 0)}`
                   : config?.d_mode === 1
-                  ? `Theo TDS: xả khi trên ${config.tds_hi} ppm`
+                  ? `Theo TDS: xả khi trên ${config.tds_hi} ppm${
+                      (status?.dtry ?? 0) > 0 ? ` · đã xả ${status?.dtry}/${TDS_DRAIN_MAX_TRIES} lần` : ''
+                    }`
                   : status?.dnext_t
                   ? `Lần tới ${formatLocalHm(status.dnext_t)} ngày ${new Date(status.dnext_t * 1000)
                       .getUTCDate()
@@ -978,7 +982,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           <div className="text-[11px] text-slate-400 mt-0.5">
             {status && status.w === null
               ? 'Cảm biến lỗi'
-              : config?.sens_rt === 1
+              : isSensorRealtime(config)
               ? 'Cập nhật liên tục'
               : `Đo khi nước chảy, ${formatMinutes(config?.tds_int ?? 30)} / lần`}
           </div>
