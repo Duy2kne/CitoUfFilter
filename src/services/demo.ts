@@ -14,7 +14,7 @@ import {
   UfIncomingPacket,
   UfStatus,
 } from '../types/system';
-import { isFilterActiveAt } from './scheduleCalculator';
+import { calculateNextScheduledRun, customRunAt, isFilterActiveAt } from './scheduleCalculator';
 
 export type PacketCallback = (pkt: UfIncomingPacket) => void;
 
@@ -82,7 +82,10 @@ export class UfDemoDevice {
   private validateConfig() {
     const c = this.config;
     const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
-    if (!(c.fmode >= 0 && c.fmode <= 4)) c.fmode = 3;
+    if (!(c.fmode >= 0 && c.fmode <= 5)) c.fmode = 3;
+    c.c_hour = clamp(Math.round(c.c_hour), 0, 23);
+    c.c_min = clamp(Math.round(c.c_min), 0, 59);
+    c.c_dur = clamp(Math.round(c.c_dur), 1, 1440);
     c.fmin = clamp(Math.round(c.fmin), 5, 60);
     c.day = clamp(Math.round(c.day), 0, 4);
     c.wday = (c.wday & 0x7f) || 0x7f;
@@ -250,8 +253,12 @@ export class UfDemoDevice {
       this.status.v = [this.config.valve, this.config.valve, 1, this.config.valve ? 308 : 0];
 
       // Calculate minutes and seconds left in this scheduled hour
-      const totalHourSecs = this.config.fmin * 60;
-      const elapsedSecs = now.getMinutes() * 60 + now.getSeconds();
+      // Che do Tu dat: 1 luot dai c_dur phut; cac che do khac: fmin phut dau moi gio
+      const cusRun = this.config.fmode === 5 ? customRunAt(now, this.config) : null;
+      const totalHourSecs = cusRun ? this.config.c_dur * 60 : this.config.fmin * 60;
+      const elapsedSecs = cusRun
+        ? Math.floor((now.getTime() - cusRun.start.getTime()) / 1000)
+        : now.getMinutes() * 60 + now.getSeconds();
       const leftSecs = Math.max(0, totalHourSecs - elapsedSecs);
       this.status.run = { tot: totalHourSecs, left: leftSecs };
 
@@ -345,6 +352,13 @@ export class UfDemoDevice {
     if (this.config.fmode === 0) {
       this.status.next = -1;
       this.status.next_t = 0;
+      return;
+    }
+
+    if (this.config.fmode === 5) {
+      const r = calculateNextScheduledRun(now, this.config);
+      this.status.next = r ? r.secondsUntil : -1;
+      this.status.next_t = r ? Math.floor(r.nextRun.getTime() / 1000 - r.nextRun.getTimezoneOffset() * 60) : 0;
       return;
     }
 
