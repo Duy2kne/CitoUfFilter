@@ -245,3 +245,18 @@ export function calculateNextScheduledRun(
 
   return null;
 }
+
+/**
+ * Timer water change: the next `count` drain times as local epochs (read with getUTC*), same rule as firmware
+ * (days since 1970 divisible by dDays, at dHour:dMin).
+ */
+export function upcomingDrainTimes(localNow: number, dDays: number, dHour: number, dMin: number, count = 3): number[] {
+  const out: number[] = [];
+  const n = Math.max(1, Math.round(dDays));
+  const tod = dHour * 3600 + dMin * 60;
+  for (let d = Math.floor(localNow / 86400), k = 0; k <= 31 * count && out.length < count; k++, d++) {
+    const at = d * 86400 + tod;
+    if (at > localNow && d % n === 0) out.push(at);
+  }
+  return out;
+}
