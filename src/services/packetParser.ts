@@ -82,6 +82,7 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
           Number(stPkt.d?.[3] ?? 0),
         ],
         dleft: Number(stPkt.dleft ?? 0),
+        dtry: Number(stPkt.dtry ?? 0),
         dcool: Number(stPkt.dcool ?? 0),
         dnext_t: Number(stPkt.dnext_t ?? 0),
         fcl: Number(stPkt.fcl ?? -1),
@@ -148,6 +149,7 @@ export function applyPacket(prev: AppState, pkt: UfIncomingPacket): AppState {
         drain: (cfPkt.drain ?? 0) as 0 | 1,
         d_mode: Number(cfPkt.d_mode ?? 0),
         tds_hi: Number(cfPkt.tds_hi ?? 250),
+        tds_gap: Number(cfPkt.tds_gap ?? 0), // 0 = firmware cu hon 1.5.0 (nghi co dinh 2 tieng)
         tds_lo: Number(cfPkt.tds_lo ?? 150),
         d_days: Number(cfPkt.d_days ?? 3),
         d_hour: Number(cfPkt.d_hour ?? 12),
