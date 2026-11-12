@@ -37,6 +37,7 @@ export interface UfStatus {
   v: [number, number, number, number]; // Valve: [installed/enabled (0/1), on (0/1), has_current_sensor (0/1), current_mA]
   d: [number, number, number, number]; // Drain valve (water change): [installed, open, has_current_sensor, current_mA]
   dleft: number; // Draining: seconds left (0 = not draining)
+  dtry: number; // TDS mode: automatic water changes done in a row while TDS is still above tds_lo (5 -> E13). Firmware 1.5.0+
   dcool: number; // Just drained: seconds left before another water change is allowed (0 = allowed)
   dnext_t: number; // Local epoch of next scheduled water change (0 = no drain valve / no clock / TDS mode)
   fcl: number; // Filter cleanliness 0-100 % from the average pump current of a run, updated when a run ends (-1 = unknown)
@@ -98,6 +99,7 @@ export interface UfConfig {
   d_mode: number; // 0 = by timer (d_days / d_hour / d_min), 1 = by TDS (tds_hi / tds_lo)
   tds_hi: number; // TDS mode: above this -> change water (ppm)
   tds_lo: number; // TDS mode: keep changing until TDS <= this (ppm)
+  tds_gap: number; // TDS mode: minutes between two water changes (10-1440, default 120). 0 = firmware older than 1.5.0 (fixed 2 hours)
   d_days: number; // Change water every N days (1-30; epoch day % N == 0)
   d_hour: number; // Hour (0-23)
   d_min: number; // Minute (0-59)
@@ -257,6 +259,14 @@ export const ERROR_DEFINITIONS: Record<number, ErrorDetail> = {
     isWarning: false,
     hint: 'Máy đã khóa an toàn! Cuộn van xả chập hoặc kẹt. Kiểm tra van xả trước khi bấm "Xóa lỗi".',
   },
+  13: {
+    code: 'E13',
+    bit: 12,
+    name: 'Thay nước 5 lần mà TDS không giảm',
+    isLocking: false,
+    isWarning: true,
+    hint: 'Máy đã ngừng tự xả theo TDS (vẫn lọc bình thường). Kiểm tra nguồn nước cấp, van xả, đầu dò TDS hoặc mức TDS dưới đặt quá thấp. Bấm "Xóa lỗi" để máy thử xả lại 5 lần nữa; TDS xuống tới mức dưới thì cảnh báo tự hết.',
+  },
 };
 
 // 2 loai bom va nguong dong mac dinh cua firmware (config.h: DEF_PUMP_xxx / DEF_PUMP_L_xxx)
@@ -305,8 +315,8 @@ export const MACHINE_STATES: Record<number, { name: string; color: string; badge
 
 /** Locked faults (E2, E6, E12): power on again or CLEAR_FAULTS */
 export const LOCKED_ERRORS_MASK = 0x822;
-/** Number of error codes known by the firmware (E1..E12) */
-export const ERROR_COUNT = 12;
+/** Number of error codes known by the firmware (E1..E13) */
+export const ERROR_COUNT = 13;
 
 /**
  * Format current: mA under 1000, A with 2 decimals >= 1000
@@ -361,9 +371,19 @@ export function formatHm(hour: number, minute: number): string {
   return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 }
 
-// Khoang nghi giua 2 lan thay nuoc (giay): che do theo TDS 2 tieng, hen gio 1 tieng (giong filter_drain_gap_s)
-export function drainGapSeconds(dMode: number | undefined): number {
-  return dMode === 1 ? 7200 : 3600;
+// So lan tu xa lien tiep toi da o che do theo TDS (firmware: DRAIN_TDS_MAX_TRIES)
+export const TDS_DRAIN_MAX_TRIES = 5;
+
+// Khoang nghi giua 2 lan thay nuoc (giay): hen gio 1 tieng; theo TDS = tds_gap phut (may cu hon 1.5.0: 2 tieng)
+export function drainGapSeconds(dMode: number | undefined, tdsGapMin?: number): number {
+  if (dMode !== 1) return 3600;
+  return (tdsGapMin && tdsGapMin > 0 ? tdsGapMin : 120) * 60;
+}
+
+// TDS / nhiet do dang cap nhat lien tuc: nguoi dung bat, hoac Firmware 1.5.0 tu ep khi thay nuoc theo TDS
+export function isSensorRealtime(c: Pick<UfConfig, 'sens_rt' | 'drain' | 'd_mode' | 'tds_gap'> | null | undefined): boolean {
+  if (!c) return false;
+  return c.sens_rt === 1 || (c.drain === 1 && c.d_mode === 1 && c.tds_gap > 0);
 }
 
 // So phut -> "30 phút", "1 tiếng", "1 tiếng 30 phút"
@@ -462,6 +482,7 @@ export const INITIAL_STATUS: UfStatus = {
   v: [0, 0, 0, 0],
   d: [0, 0, 0, 0],
   dleft: 0,
+  dtry: 0,
   dcool: 0,
   dnext_t: 0,
   fcl: 92,
@@ -517,6 +538,7 @@ export const INITIAL_CONFIG: UfConfig = {
   d_mode: 0,
   tds_hi: 250,
   tds_lo: 150,
+  tds_gap: 120,
   d_days: 3,
   d_hour: 12,
   d_min: 0,
